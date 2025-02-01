@@ -1,6 +1,6 @@
 project(desktop)
 
-QT5_ADD_RESOURCES(RES_SOURCES res/resources.qrc)
+QT6_ADD_RESOURCES(RES_SOURCES res/resources.qrc)
 
 set(SRC
   about.cpp
@@ -36,8 +36,12 @@ set(SRC
   mwms_borders_selection.hpp
   osm_auth_dialog.cpp
   osm_auth_dialog.hpp
-  place_page_dialog.cpp
-  place_page_dialog.hpp
+  place_page_dialog_common.cpp
+  place_page_dialog_common.hpp
+  place_page_dialog_developer.cpp
+  place_page_dialog_developer.hpp
+  place_page_dialog_user.cpp
+  place_page_dialog_user.hpp
   preferences_dialog.cpp
   preferences_dialog.hpp
   popup_menu_holder.cpp
@@ -104,12 +108,12 @@ endfunction()
 copy_resources(
   countries-strings
   resources-default
-  resources-mdpi_clear
-  resources-hdpi_clear
-  resources-xhdpi_clear
-  resources-xxhdpi_clear
-  resources-xxxhdpi_clear
-  resources-6plus_clear
+  resources-mdpi_light
+  resources-hdpi_light
+  resources-xhdpi_light
+  resources-xxhdpi_light
+  resources-xxxhdpi_light
+  resources-6plus_light
   welcome.html
 
   categories.txt
@@ -118,9 +122,9 @@ copy_resources(
   colors.txt
   copyright.html
   countries.txt
-  drules_proto_clear.bin
-  drules_proto_dark.bin
-  drules_proto_vehicle_clear.bin
+  drules_proto_default_light.bin
+  drules_proto_default_dark.bin
+  drules_proto_vehicle_light.bin
   drules_proto_vehicle_dark.bin
   editor.config
   fonts_blacklist.txt
@@ -134,7 +138,11 @@ copy_resources(
   WorldCoasts.mwm
 
   00_NotoNaskhArabic-Regular.ttf
+  00_NotoSansBengali-Regular.ttf
+  00_NotoSansHebrew-Regular.ttf
+  00_NotoSansMalayalam-Regular.ttf
   00_NotoSansThai-Regular.ttf
+  00_NotoSerifDevanagari-Regular.ttf
   01_dejavusans.ttf
   02_droidsans-fallback.ttf
   03_jomolhari-id-a3d.ttf
@@ -149,13 +157,13 @@ install(DIRECTORY ${OMIM_ROOT}/data DESTINATION ${CMAKE_INSTALL_PREFIX}/share/or
 
 if (PLATFORM_LINUX)
   install(FILES ${OMIM_ROOT}/packaging/app.organicmaps.desktop.metainfo.xml DESTINATION ${CMAKE_INSTALL_PREFIX}/share/metainfo/)
-  install(FILES ${OMIM_ROOT}/qt/res/OrganicMaps.desktop DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications/)
+  install(FILES ${OMIM_ROOT}/qt/res/app.organicmaps.desktop.desktop DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications/)
   install(FILES ${OMIM_ROOT}/qt/res/logo.png DESTINATION ${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/512x512/apps/ RENAME organicmaps.png)
 endif()
 
 if (NOT PLATFORM_LINUX)
   # On Linux, ICU data is loaded from the shared library.
-  copy_resources(icudt70l.dat)
+  copy_resources(icudt75l.dat)
 endif()
 
 if (PLATFORM_MAC)
@@ -175,7 +183,7 @@ if (PLATFORM_MAC)
     set(BUNDLE_VERSION ${APP_VERSION})
   endif()
 
-  configure_file(${PROJECT_SOURCE_DIR}/res/Info.plist.in ${PROJECT_SOURCE_DIR}/res/Info.plist)
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/res/Info.plist.in ${CMAKE_CURRENT_SOURCE_DIR}/res/Info.plist)
 
   set_target_properties(${PROJECT_NAME}
     PROPERTIES
@@ -184,22 +192,26 @@ if (PLATFORM_MAC)
   )
 endif()
 
+if (PLATFORM_WIN)
+  target_sources(${PROJECT_NAME} PRIVATE res/windows.rc)
+endif()
+
 if (BUILD_DESIGNER)
   execute_process(
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-mdpi_clear/ ${OMIM_ROOT}/data/resources-mdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-hdpi_clear/ ${OMIM_ROOT}/data/resources-hdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xhdpi_clear/ ${OMIM_ROOT}/data/resources-xhdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxhdpi_clear/ ${OMIM_ROOT}/data/resources-xxhdpi_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-6plus_clear/ ${OMIM_ROOT}/data/resources-6plus_design/
-    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxxhdpi_clear/ ${OMIM_ROOT}/data/resources-xxxhdpi_design/
-    COMMAND cp -f ${OMIM_ROOT}/data/drules_proto_clear.bin ${OMIM_ROOT}/data/drules_proto_design.bin
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-mdpi_light/ ${OMIM_ROOT}/data/resources-mdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-hdpi_light/ ${OMIM_ROOT}/data/resources-hdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xhdpi_light/ ${OMIM_ROOT}/data/resources-xhdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxhdpi_light/ ${OMIM_ROOT}/data/resources-xxhdpi_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-6plus_light/ ${OMIM_ROOT}/data/resources-6plus_design/
+    COMMAND cp -rf ${OMIM_ROOT}/data/resources-xxxhdpi_light/ ${OMIM_ROOT}/data/resources-xxxhdpi_design/
+    COMMAND cp -f ${OMIM_ROOT}/data/drules_proto_default_light.bin ${OMIM_ROOT}/data/drules_proto_default_design.bin
     COMMAND cp -f ${OMIM_ROOT}/data/colors.txt ${OMIM_ROOT}/data/colors_design.txt
     COMMAND cp -f ${OMIM_ROOT}/data/patterns.txt ${OMIM_ROOT}/data/patterns_design.txt
   )
 
   copy_resources(
     colors_design.txt
-    drules_proto_design.bin
+    drules_proto_default_design.bin
     mapcss-dynamic.txt
     mapcss-mapping.csv
     patterns_design.txt
@@ -231,7 +243,6 @@ if (BUILD_DESIGNER)
     foreach(BUNDLE ${BUNDLE_FOLDER} ${BUNDLES})
       execute_process(
         COMMAND \"${QT_PATH}/bin/macdeployqt\" \"\${BUNDLE}\"
-        COMMAND find \"\${BUNDLE}/Contents/MacOS\" -type f -exec python \"${OMIM_ROOT}/tools/macdeployqtfix/macdeployqtfix.py\" -q -nl {} \"${QT_PATH}\" \\;
       )
     endforeach()
     foreach(BUNDLE ${BUNDLES})

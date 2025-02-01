@@ -31,21 +31,15 @@ final class CarPlayService: NSObject {
   }
   var preparedToPreviewTrips: [CPTrip] = []
   var isUserPanMap: Bool = false
+  private var searchText = ""
 
   @objc func setup(window: CPWindow, interfaceController: CPInterfaceController) {
     isCarplayActivated = true
     self.window = window
     self.interfaceController = interfaceController
     self.interfaceController?.delegate = self
-    sessionConfiguration = CPSessionConfiguration(delegate: self)
-    // Try to use the CarPlay unit's interface style.
-    if #available(iOS 13.0, *) {
-      if sessionConfiguration?.contentStyle == .light {
-        window.overrideUserInterfaceStyle = .light
-      } else {
-        window.overrideUserInterfaceStyle = .dark
-      }
-    }
+    let configuration = CPSessionConfiguration(delegate: self)
+    sessionConfiguration = configuration
     searchService = CarPlaySearchService()
     let router = CarPlayRouter()
     router.addListener(self)
@@ -60,11 +54,49 @@ final class CarPlayService: NSObject {
       applyBaseRootTemplate()
       router.restoreTripPreviewOnCarplay(beforeRootTemplateDidAppear: true)
     }
-    ThemeManager.invalidate()
+    if #available(iOS 13.0, *) {
+      updateContentStyle(configuration.contentStyle)
+    }
     FrameworkHelper.updatePositionArrowOffset(false, offset: 5)
+
+    CarPlayWindowScaleAdjuster.updateAppearance(
+      fromWindow: MapsAppDelegate.theApp().window,
+      toWindow: window,
+      isCarplayActivated: true
+    )
   }
 
-  @objc func destroy() {
+  private var savedInterfaceController: CPInterfaceController?
+  @objc func showOnPhone() {
+    savedInterfaceController = interfaceController
+    switchScreenToPhone()
+    showPhoneModeAlert()
+  }
+
+  @objc func showOnCarplay() {
+    if let window, let savedInterfaceController {
+      setup(window: window, interfaceController: savedInterfaceController)
+    }
+  }
+
+  private func showPhoneModeAlert() {
+    let switchToCarAction = CPAlertAction(
+      title: L("car_continue_in_the_car"),
+      style: .default,
+      handler: { [weak self] _ in
+        self?.savedInterfaceController?.dismissTemplate(animated: false)
+        self?.showOnCarplay()
+      }
+    )
+    let alert = CPAlertTemplate(
+      titleVariants: [L("car_used_on_the_phone_screen")],
+      actions: [switchToCarAction]
+    )
+    savedInterfaceController?.dismissTemplate(animated: false)
+    savedInterfaceController?.presentTemplate(alert, animated: false)
+  }
+
+  private func switchScreenToPhone() {
     if let carplayVC = carplayVC {
       carplayVC.removeMapView()
     }
@@ -88,14 +120,42 @@ final class CarPlayService: NSObject {
     interfaceController = nil
     ThemeManager.invalidate()
     FrameworkHelper.updatePositionArrowOffset(true, offset: 0)
+
+    if let window {
+      CarPlayWindowScaleAdjuster.updateAppearance(
+        fromWindow: window,
+        toWindow: MapsAppDelegate.theApp().window,
+        isCarplayActivated: false
+      )
+    }
+  }
+
+  @objc func destroy() {
+    if isCarplayActivated {
+      switchScreenToPhone()
+    }
+    savedInterfaceController = nil
   }
 
   @objc func interfaceStyle() -> UIUserInterfaceStyle {
     if let window = window,
       window.traitCollection.userInterfaceIdiom == .carPlay {
-      return window.traitCollection.userInterfaceStyle
+      return rootTemplateStyle == .dark ? .dark : .light
     }
     return .unspecified
+  }
+
+  @available(iOS 13.0, *)
+  private func updateContentStyle(_ contentStyle: CPContentStyle) {
+    rootTemplateStyle = contentStyle == .dark ? .dark : .light
+    // Update the current map style in accordance with the CarPLay content theme.
+    ThemeManager.invalidate()
+  }
+
+  private var rootTemplateStyle: CPTripEstimateStyle = .light {
+    didSet {
+      (interfaceController?.rootTemplate as? CPMapTemplate)?.tripEstimateStyle = rootTemplateStyle
+    }
   }
 
   private func applyRootViewController() {
@@ -114,6 +174,7 @@ final class CarPlayService: NSObject {
   private func applyBaseRootTemplate() {
     let mapTemplate = MapTemplateBuilder.buildBaseTemplate(positionMode: currentPositionMode)
     mapTemplate.mapDelegate = self
+    mapTemplate.tripEstimateStyle = rootTemplateStyle
     interfaceController?.setRootTemplate(mapTemplate, animated: true)
     FrameworkHelper.rotateMap(0.0, animated: false)
   }
@@ -124,6 +185,7 @@ final class CarPlayService: NSObject {
     interfaceController?.setRootTemplate(mapTemplate, animated: true)
     router?.startNavigationSession(forTrip: trip, template: mapTemplate)
     if let estimates = createEstimates(routeInfo: routeInfo) {
+      mapTemplate.tripEstimateStyle = rootTemplateStyle
       mapTemplate.updateEstimates(estimates, for: trip)
     }
 
@@ -314,7 +376,8 @@ extension CarPlayService: CPSessionConfigurationDelegate {
   @available(iOS 13.0, *)
   func sessionConfiguration(_ sessionConfiguration: CPSessionConfiguration,
                             contentStyleChanged contentStyle: CPContentStyle) {
-    window?.overrideUserInterfaceStyle = contentStyle == .light ? .light : .dark
+    // Handle the CarPlay content style changing triggered by the 'Always Show Dark Maps' toggle.
+    updateContentStyle(contentStyle)
   }
 }
 
@@ -356,6 +419,11 @@ extension CarPlayService: CPMapTemplateDelegate {
     if direction.contains(.right) { offset.horizontal -= offsetStep }
     FrameworkHelper.moveMap(offset)
     isUserPanMap = true
+  }
+
+  func mapTemplate(_ mapTemplate: CPMapTemplate, didUpdatePanGestureWithTranslation translation: CGPoint, velocity: CGPoint) {
+    let scaleFactor = self.carplayVC?.mapView?.contentScaleFactor ?? 1
+    FrameworkHelper.scrollMap(-scaleFactor * translation.x, -scaleFactor * translation.y);
   }
 
   func mapTemplate(_ mapTemplate: CPMapTemplate, startedTrip trip: CPTrip, using routeChoice: CPRouteChoice) {
@@ -464,12 +532,13 @@ extension CarPlayService: CPListTemplateDelegate {
 // MARK: - CPSearchTemplateDelegate implementation
 extension CarPlayService: CPSearchTemplateDelegate {
   func searchTemplate(_ searchTemplate: CPSearchTemplate, updatedSearchText searchText: String, completionHandler: @escaping ([CPListItem]) -> Void) {
+    self.searchText = searchText
     let locale = window?.textInputMode?.primaryLanguage ?? "en"
     guard let searchService = searchService else {
       completionHandler([])
       return
     }
-    searchService.searchText(searchText, forInputLocale: locale, completionHandler: { results in
+    searchService.searchText(self.searchText, forInputLocale: locale, completionHandler: { results in
       var items = [CPListItem]()
       for object in results {
         let item = CPListItem(text: object.title, detailText: object.address)
@@ -488,6 +557,18 @@ extension CarPlayService: CPSearchTemplateDelegate {
       preparePreviewForSearchResults(selectedRow: metadata.originalRow)
     }
     completionHandler()
+  }
+
+  func searchTemplateSearchButtonPressed(_ searchTemplate: CPSearchTemplate) {
+    let locale = window?.textInputMode?.primaryLanguage ?? "en"
+    guard let searchService = searchService else {
+      return
+    }
+    searchService.searchText(searchText, forInputLocale: locale, completionHandler: { [weak self] results in
+      guard let self = self else { return }
+      let template = ListTemplateBuilder.buildListTemplate(for: .searchResults(results: results))
+      self.pushTemplate(template, animated: true)
+    })
   }
 }
 
@@ -557,9 +638,6 @@ extension CarPlayService: LocationModeListener {
       rootMapTemplate.leadingNavigationBarButtons = []
     }
   }
-
-  func processMyPositionPendingTimeout() {
-  }
 }
 
 // MARK: - Alerts and Trip Previews
@@ -627,14 +705,8 @@ extension CarPlayService {
   }
 
   func createEstimates(routeInfo: RouteInfo) -> CPTravelEstimates? {
-    if let distance = Double(routeInfo.targetDistance) {
-      let measurement = Measurement(value: distance,
-                                    unit: routeInfo.targetUnits)
-      let estimates = CPTravelEstimates(distanceRemaining: measurement,
-                                        timeRemaining: routeInfo.timeToTarget)
-      return estimates
-    }
-    return nil
+    let measurement = Measurement(value: routeInfo.targetDistance, unit: routeInfo.targetUnits)
+    return CPTravelEstimates(distanceRemaining: measurement, timeRemaining: routeInfo.timeToTarget)
   }
 
   func applyUndefinedEstimates(template: CPMapTemplate, trip: CPTrip) {

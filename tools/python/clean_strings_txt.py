@@ -25,6 +25,7 @@ CORE_RE = re.compile(r'GetLocalizedString\("(.*?)"\)')
 IOS_RE = re.compile(r'L\(.*?"(\w+)".*?(?:"(\w+)")?\)')
 IOS_NS_RE = re.compile(r'NSLocalizedString\(\s*?@?"(\w+)"')
 IOS_XML_RE = re.compile(r'value=\"(.*?)\"')
+IOS_APPTIPS_RE = re.compile(r'app_tip_\d\d')
 
 ANDROID_JAVA_RE = re.compile(r'R\.string\.([\w_]*)')
 ANDROID_JAVA_PLURAL_RE = re.compile(r'R\.plurals\.([\w_]*)')
@@ -32,16 +33,12 @@ ANDROID_XML_RE = re.compile(r'@string/(.*?)\W')
 
 IOS_CANDIDATES_RE = re.compile(r'(.*?):[^L\(]@"([a-z0-9_]*?)"')
 
-HARDCODED_CATEGORIES = None
+HARDCODED_CATEGORIES = []
 
 HARDCODED_STRINGS = [
     # titleForBookmarkColor
     "red", "blue", "purple", "yellow", "pink", "brown", "green", "orange", "deep_purple", "light_blue",
     "cyan", "teal", "lime", "deep_orange", "gray", "blue_gray",
-    # Used in About in iphone/Maps/UI/Help/AboutController.swift
-    "news", "faq", "report_a_bug", "how_to_support_us", "rate_the_app",
-    "telegram", "github", "website", "email", "matrix", "mastodon", "facebook", "twitter", "instagram", "openstreetmap",
-    "privacy_policy", "terms_of_use", "copyright",
 ]
 
 
@@ -61,25 +58,32 @@ def exec_shell(test, *flags):
 
 def grep_ios():
     logging.info("Grepping iOS...")
-    grep = "grep -r -I 'L(\|localizedText\|localizedPlaceholder\|NSLocalizedString(' {0}/iphone/*".format(
+    grep = "grep -r -I 'L(\\|localizedText\\|localizedPlaceholder\\|NSLocalizedString(' {0}/iphone/*".format(
         OMIM_ROOT)
     ret = exec_shell(grep)
     ret = filter_ios_grep(ret)
     logging.info("Found in iOS: {0}".format(len(ret)))
     ret.update(get_hardcoded())
 
+    # iOS code scans resources for all available app_tip_XX strings.
+    grep = "grep app_tip_ {0}/data/strings/strings.txt".format(OMIM_ROOT)
+    ret2 = exec_shell(grep)
+    ret.update(parenthesize(strings_from_grepped(ret2, IOS_APPTIPS_RE)))
+
     return ret
 
 
 def grep_android():
     logging.info("Grepping android...")
-    grep = "grep -r -I 'R.string.' {0}/android/src".format(OMIM_ROOT)
+    grep = "grep -r -I 'R.string.' {0}/android/app/src/main".format(OMIM_ROOT)
     ret = android_grep_wrapper(grep, ANDROID_JAVA_RE)
-    grep = "grep -r -I 'R.plurals.' {0}/android/src".format(OMIM_ROOT)
+    grep = "grep -r -I 'R.plurals.' {0}/android/app/src/main".format(OMIM_ROOT)
     ret.update(android_grep_wrapper(grep, ANDROID_JAVA_PLURAL_RE))
-    grep = "grep -r -I '@string/' {0}/android/res".format(OMIM_ROOT)
+    grep = "grep -r -I '@string/' {0}/android/app/src/main/res".format(OMIM_ROOT)
     ret.update(android_grep_wrapper(grep, ANDROID_XML_RE))
-    grep = "grep -r -I '@string/' {0}/android/AndroidManifest.xml".format(
+    grep = "grep -r -I '@string/' {0}/android/app/src/google/res".format(OMIM_ROOT)
+    ret.update(android_grep_wrapper(grep, ANDROID_XML_RE))
+    grep = "grep -r -I '@string/' {0}/android/app/src/main/AndroidManifest.xml".format(
         OMIM_ROOT)
     ret.update(android_grep_wrapper(grep, ANDROID_XML_RE))
     ret = parenthesize(ret)
@@ -92,8 +96,7 @@ def grep_android():
 
 def grep_core():
     logging.info("Grepping core...")
-    grep = "grep -wr -I --exclude-dir {0}/3party --exclude-dir {0}/.git --exclude-dir {0}/data 'GetLocalizedString' {0}/*".format(
-        OMIM_ROOT)
+    grep = "grep -wr -I 'GetLocalizedString' {0}/map {0}/platform".format(OMIM_ROOT)
     ret = android_grep_wrapper(grep, CORE_RE)
     logging.info("Found in core: {0}".format(len(ret)))
 
@@ -111,6 +114,7 @@ def grep_ios_candidates():
 
 
 def get_hardcoded():
+    "search/displayed_categories.cpp"
     ret = parenthesize(HARDCODED_CATEGORIES)
     ret.update(parenthesize(HARDCODED_STRINGS))
     logging.info("Hardcoded colors and categories: {0}".format(len(ret)))
@@ -233,14 +237,6 @@ def get_args():
         "-r", "--root",
         dest="omim_root", default=find_omim(),
         help="Path to the root of the OMIM project"
-    )
-
-    parser.add_argument(
-        "-ct", "--categories",
-        dest="hardcoded_categories",
-        default="{0}/data/hardcoded_categories.txt".format(find_omim()),
-        help="""Path to the list of the categories that are displayed in the
-        interface, but are not taken from strings.txt"""
     )
 
     return parser.prog, parser.parse_args()
@@ -380,10 +376,11 @@ def find_omim():
     return omim_path
 
 
-def read_hardcoded_categories(a_path):
-    logging.info("Loading harcoded categories from: {0}".format(a_path))
-    with open(a_path) as infile:
-        return [s.strip() for s in infile if s]
+def read_hardcoded_categories():
+    categoriestxt = OMIM_ROOT + "/data/categories.txt"
+    logging.info(f"Retrieving search categories from: {categoriestxt}")
+    with open(categoriestxt) as infile:
+        return [s.strip().lstrip('@') for s in infile if s.startswith("@category_")]
 
 
 if __name__ == "__main__":
@@ -392,11 +389,8 @@ if __name__ == "__main__":
 
     OMIM_ROOT = args.omim_root
 
-    # TODO: switch to a single source of hardcoded categories,
-    # see https://github.com/organicmaps/organicmaps/issues/1795
-    HARDCODED_CATEGORIES = read_hardcoded_categories(
-        args.hardcoded_categories
-    )
+    HARDCODED_CATEGORIES = read_hardcoded_categories()
+    logging.info(f"Loaded categories: {HARDCODED_CATEGORIES}")
 
     args.langs = set(args.langs) if args.langs else None
 

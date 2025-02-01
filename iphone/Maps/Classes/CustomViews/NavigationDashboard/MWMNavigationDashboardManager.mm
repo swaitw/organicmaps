@@ -82,8 +82,10 @@ NSString *const kNavigationControlViewXibName = @"NavigationControlView";
   if (!entity.isValid)
     return;
   [_navigationInfoView onNavigationInfoUpdated:entity];
-  if ([MWMRouter type] == MWMRouterTypePublicTransport)
-    [_transportRoutePreviewStatus onNavigationInfoUpdated:entity];
+  bool const isPublicTransport = [MWMRouter type] == MWMRouterTypePublicTransport;
+  bool const isRuler = [MWMRouter type] == MWMRouterTypeRuler;
+  if (isPublicTransport || isRuler)
+    [_transportRoutePreviewStatus onNavigationInfoUpdated:entity prependDistance:isRuler];
   else
     [_baseRoutePreviewStatus onNavigationInfoUpdated:entity];
   [_navigationControlView onNavigationInfoUpdated:entity];
@@ -172,17 +174,24 @@ NSString *const kNavigationControlViewXibName = @"NavigationControlView";
 
 - (void)stateReady {
   // TODO: Here assert sometimes fires with _state = MWMNavigationDashboardStateReady, if app was stopped while navigating and then restarted.
-  NSAssert(_state == MWMNavigationDashboardStatePlanning, @"Invalid state change (ready)");
+  // Also in ruler mode when new point is added by single tap on the map state MWMNavigationDashboardStatePlanning is skipped and we get _state = MWMNavigationDashboardStateReady.
+  NSAssert(_state == MWMNavigationDashboardStatePlanning || _state == MWMNavigationDashboardStateReady, @"Invalid state change (ready)");
   [self setRouteBuilderProgress:100.];
   [self updateGoButtonTitle];
-  auto const isTransport = ([MWMRouter type] == MWMRouterTypePublicTransport);
-  if (isTransport)
+  bool const isTransport = ([MWMRouter type] == MWMRouterTypePublicTransport);
+  bool const isRuler = ([MWMRouter type] == MWMRouterTypeRuler);
+  if (isTransport || isRuler)
     [self.transportRoutePreviewStatus showReady];
   else
     [self.baseRoutePreviewStatus showReady];
-  self.goButtonsContainer.hidden = isTransport;
+  self.goButtonsContainer.hidden = isTransport || isRuler;
   for (MWMRouteStartButton *button in self.goButtons)
-    [button stateReady];
+  {
+    if (isRuler)
+      [button stateHidden];
+    else
+      [button stateReady];
+  }
 }
 
 - (void)onRouteStart {
@@ -223,7 +232,7 @@ NSString *const kNavigationControlViewXibName = @"NavigationControlView";
 }
 
 - (IBAction)settingsButtonAction {
-  [[MapViewController sharedController] performSegueWithIdentifier:@"Map2Settings" sender:nil];
+  [[MapViewController sharedController] openSettings];
 }
 
 - (IBAction)stopRoutingButtonAction {
@@ -249,22 +258,6 @@ NSString *const kNavigationControlViewXibName = @"NavigationControlView";
   _navigationInfoView.availableArea = frame;
 }
 #pragma mark - Properties
-
-- (NSDictionary *)etaAttributes {
-  if (!_etaAttributes) {
-    _etaAttributes =
-      @{NSForegroundColorAttributeName: [UIColor blackPrimaryText], NSFontAttributeName: [UIFont medium17]};
-  }
-  return _etaAttributes;
-}
-
-- (NSDictionary *)etaSecondaryAttributes {
-  if (!_etaSecondaryAttributes) {
-    _etaSecondaryAttributes =
-      @{NSForegroundColorAttributeName: [UIColor blackSecondaryText], NSFontAttributeName: [UIFont medium17]};
-  }
-  return _etaSecondaryAttributes;
-}
 
 - (void)setState:(MWMNavigationDashboardState)state {
   if (state == MWMNavigationDashboardStateHidden)

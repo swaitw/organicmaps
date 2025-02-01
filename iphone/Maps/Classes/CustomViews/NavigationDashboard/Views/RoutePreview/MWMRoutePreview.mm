@@ -4,6 +4,7 @@
 #import "MWMRouter.h"
 #import "UIButton+Orientation.h"
 #import "UIImageView+Coloring.h"
+#import "SwiftBridge.h"
 
 #include "platform/platform.hpp"
 
@@ -18,7 +19,7 @@ static CGFloat const kDrivingOptionsHeight = 48;
 @property(weak, nonatomic) IBOutlet UIView * contentView;
 @property(weak, nonatomic) IBOutlet UIView * pedestrian;
 @property(weak, nonatomic) IBOutlet UIView * publicTransport;
-@property(weak, nonatomic) IBOutlet UIView * helicopter;
+@property(weak, nonatomic) IBOutlet UIView * ruler;
 @property(weak, nonatomic) IBOutlet UIView * vehicle;
 @property(strong, nonatomic) IBOutlet NSLayoutConstraint * drivingOptionHeightConstraint;
 @property(strong, nonatomic) IBOutlet UIButton * drivingOptionsButton;
@@ -73,6 +74,7 @@ static CGFloat const kDrivingOptionsHeight = 48;
           imageName:@"ic_train"
          routerType:MWMRouterTypePublicTransport];
   [self addProgress:self.bicycle imageName:@"ic_bike" routerType:MWMRouterTypeBicycle];
+  [self addProgress:self.ruler imageName:@"ic_ruler_route" routerType:MWMRouterTypeRuler];
 }
 
 - (void)addProgress:(UIView *)parentView
@@ -178,11 +180,13 @@ static CGFloat const kDrivingOptionsHeight = 48;
   }];
 
   if (state == MWMDrivingOptionsStateDefine) {
+    [self.drivingOptionsButton setImagePadding:0.0];
     [self.drivingOptionsButton setImage:nil
                                forState:UIControlStateNormal];
     [self.drivingOptionsButton setTitle:L(@"define_to_avoid_btn").uppercaseString
                                forState:UIControlStateNormal];
   } else if (state == MWMDrivingOptionsStateChange) {
+    [self.drivingOptionsButton setImagePadding:5.0];
     [self.drivingOptionsButton setImage:[UIImage imageNamed:@"ic_options_warning"]
                                forState:UIControlStateNormal];
     [self.drivingOptionsButton setTitle:L(@"change_driving_options_btn").uppercaseString

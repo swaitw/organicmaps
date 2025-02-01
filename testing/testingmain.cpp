@@ -2,8 +2,6 @@
 #include "testing/testregister.hpp"
 
 #include "base/logging.hpp"
-#include "base/scope_guard.hpp"
-#include "base/string_utils.hpp"
 #include "base/timer.hpp"
 #include "base/waiter.hpp"
 
@@ -19,6 +17,7 @@
 #include <vector>
 
 #ifdef WITH_GL_MOCK
+# include "base/scope_guard.hpp"
 # include "drape/drape_tests/gl_mock_functions.hpp"
 #endif
 
@@ -123,18 +122,18 @@ void ParseOptions(int argc, char * argv[], CommandLineOptions & options)
 {
   for (int i = 1; i < argc; ++i)
   {
-    char const * const arg = argv[i];
-    if (strings::StartsWith(arg, kFilterOption))
-      options.m_filterRegExp = arg + sizeof(kFilterOption) - 1;
-    if (strings::StartsWith(arg, kSuppressOption))
-      options.m_suppressRegExp = arg + sizeof(kSuppressOption) - 1;
-    if (strings::StartsWith(arg, kDataPathOptions))
-      options.m_dataPath = arg + sizeof(kDataPathOptions) - 1;
-    if (strings::StartsWith(arg, kResourcePathOptions))
-      options.m_resourcePath = arg + sizeof(kResourcePathOptions) - 1;
-    if (strcmp(arg, kHelpOption) == 0)
+    std::string_view const arg = argv[i];
+    if (arg.starts_with(kFilterOption))
+      options.m_filterRegExp = argv[i] + sizeof(kFilterOption) - 1;
+    if (arg.starts_with(kSuppressOption))
+      options.m_suppressRegExp = argv[i] + sizeof(kSuppressOption) - 1;
+    if (arg.starts_with(kDataPathOptions))
+      options.m_dataPath = argv[i] + sizeof(kDataPathOptions) - 1;
+    if (arg.starts_with(kResourcePathOptions))
+      options.m_resourcePath = argv[i] + sizeof(kResourcePathOptions) - 1;
+    if (arg == kHelpOption)
       options.m_help = true;
-    if (strcmp(arg, kListAllTestsOption) == 0)
+    if (arg == kListAllTestsOption)
       options.m_listTests = true;
   }
 #ifndef OMIM_UNIT_TEST_DISABLE_PLATFORM_INIT
@@ -159,8 +158,6 @@ int main(int argc, char * argv[])
 {
 #if defined(OMIM_UNIT_TEST_WITH_QT_EVENT_LOOP) && !defined(OMIM_OS_IPHONE)
   QAPP theApp(argc, argv);
-  // Pretty icons on HDPI displays.
-  QAPP::setAttribute(Qt::AA_UseHighDpiPixmaps);
   UNUSED_VALUE(theApp);
 #else
   UNUSED_VALUE(argc);
@@ -168,7 +165,7 @@ int main(int argc, char * argv[])
 #endif
 
   base::ScopedLogLevelChanger const infoLogLevel(LINFO);
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX) || defined(OMIM_OS_IPHONE)
+#if defined(OMIM_OS_DESKTOP) || defined(OMIM_OS_IPHONE)
   base::SetLogMessageFn(base::LogMessageTests);
 #endif
 

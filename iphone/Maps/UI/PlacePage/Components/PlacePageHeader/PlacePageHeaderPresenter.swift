@@ -2,11 +2,13 @@ protocol PlacePageHeaderPresenterProtocol: AnyObject {
   func configure()
   func onClosePress()
   func onExpandPress()
+  func onShareButtonPress(from sourceView: UIView)
 }
 
 protocol PlacePageHeaderViewControllerDelegate: AnyObject {
   func previewDidPressClose()
   func previewDidPressExpand()
+  func previewDidPressShare(from sourceView: UIView)
 }
 
 class PlacePageHeaderPresenter {
@@ -42,6 +44,8 @@ extension PlacePageHeaderPresenter: PlacePageHeaderPresenterProtocol {
       view?.isExpandViewHidden = true
       view?.isShadowViewHidden = false
     }
+    // TODO: (KK) Enable share button for the tracks to share the whole track gpx/kml
+    view?.isShareButtonHidden = placePagePreviewData.coordinates == nil
   }
 
   func onClosePress() {
@@ -50,5 +54,9 @@ extension PlacePageHeaderPresenter: PlacePageHeaderPresenterProtocol {
 
   func onExpandPress() {
     delegate?.previewDidPressExpand()
+  }
+
+  func onShareButtonPress(from sourceView: UIView) {
+    delegate?.previewDidPressShare(from: sourceView)
   }
 }

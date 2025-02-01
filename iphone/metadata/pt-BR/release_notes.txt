@@ -1,15 +1,20 @@
-• Novos dados OSM de 3 de maio
-• A busca oferece suporte a endereços interpolados
-• Renderização mais rápida da camada de metrô
-• Correção de CEPs incorretos em Paris
-• Correção de links ausentes da Wikipédia
-• Correção de roteamento de carros nas rotatórias
-• Melhoria de traduções para alemão, inglês e português (Brasil)
-• Ativação de TTS para basco, espanhol (México), marata, norueguês e português (Brasil)
-• Adição de loja de antiguidades, arte, câmeras, decoração de interiores e queijos
-• Alteração de ícone de portão
-• Atualização do ícone do metrô de Lyon
-• Correção de placas de identificação de estradas dos EUA
-• Correção na exibição de corpos d'água
+• Novos dados do OpenStreetMap de 21 de janeiro
+• Toque nas trilhas para exibir estatísticas e um perfil de elevação interativo
+• Um botão de Gravação de Trilha independente
+• Widget de Atividade ao Vivo de Gravação de Trilha com estatísticas de trilha (iOS 16.2 e posterior)
+• Adicionados idiomas sérvio (cirílico) e letão
+• Adicionados POIs de torre
 
-Acompanhe nossas novidades em omaps.org/new
+• Adicionados ícones específicos para Hong Kong, metrô de Shenzhen e VLT de Berlim, um ícone de monotrilho separado
+• Adicionado um menu de contexto ao botão de coordenadas em detalhes de POI
+• Mostrar um pop-up de lembrete sempre que um modo de tela cheia for inserido
+• Exibir uma explicação quando a pesquisa de categoria do Editor OSM não retornar nada
+• Diferenciar entre cores de grama e pradaria/prado
+• Cor de jardins residenciais menos saturada/proeminente
+• Corrigidos escudos de estrada amarelos exibidos como verdes no modo noturno
+• Exibir preenchimentos de vegetação mais cedo no estilo de navegação do carro
+• Exibir níveis complexos não numéricos para construir POIs
+• Melhorar a pesquisa de picos e selas/passagens
+• Inglês como idioma de pesquisa adicional no Editor OSM
+• Atualização de traduções em alemão, estoniano, finlandês, italiano, turco
+• ... e muito mais correções de bugs e melhorias na IU

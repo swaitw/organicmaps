@@ -20,8 +20,6 @@ void CheckGeneralTags(pugi::xml_document const & doc)
   TEST(!types.empty(), ());
   auto const fields = doc.select_nodes("/omaps/editor/fields");
   TEST(!fields.empty(), ());
-  auto const preferred_types = doc.select_nodes("/omaps/editor/preferred_types");
-  TEST(!preferred_types.empty(), ());
 }
 
 UNIT_TEST(ConfigLoader_Base)
@@ -47,16 +45,6 @@ UNIT_TEST(ConfigLoader_Base)
 //  ConfigLoader::GetRemoteConfig(doc);
 //  CheckGeneralTags(doc);
 //}
-
-UNIT_TEST(ConfigLoader_SaveLoadHash)
-{
-  ScopedFile sf("test.hash", ScopedFile::Mode::Create);
-  auto const testHash = "12345 678909 87654 321 \n 32";
-
-  ConfigLoader::SaveHash(testHash, sf.GetFullPath());
-  auto const loadedHash = ConfigLoader::LoadHash(sf.GetFullPath());
-  TEST_EQUAL(testHash, loadedHash, ());
-}
 
 UNIT_TEST(ConfigLoader_LoadFromLocal)
 {

@@ -2,100 +2,55 @@
 
 #include "indexer/classificator.hpp"
 #include "indexer/feature.hpp"
+#include "indexer/ftypes_matcher.hpp"
 
 #include "base/stl_helpers.hpp"
 
 #include <vector>
+
 
 namespace search
 {
 using namespace ftypes;
 using namespace std;
 
-TwoLevelPOIChecker::TwoLevelPOIChecker() : ftypes::BaseChecker(2 /* level */)
-{
-  Classificator const & c = classif();
-  base::StringIL arr[] = {{"aeroway", "terminal"},
-                          {"aeroway", "gate"},
-                          {"building", "train_station"},
-                          {"emergency", "defibrillator"},
-                          {"emergency", "fire_hydrant"},
-                          {"emergency", "phone"},
-                          {"healthcare", "laboratory"},
-                          {"highway", "bus_stop"},
-                          {"highway", "ford"},
-                          {"highway", "raceway"},
-                          {"highway", "rest_area"},
-                          {"highway", "speed_camera"},
-                          {"natural", "beach"},
-                          {"natural", "geyser"},
-                          {"natural", "cave_entrance"},
-                          {"natural", "spring"},
-                          {"natural", "volcano"},
-                          {"waterway", "waterfall"}};
-
-  for (auto const & path : arr)
-    m_types.push_back(c.GetTypeByPath(path));
-}
-
 namespace
 {
-/// Should be similar with ftypes::IsAddressObjectChecker object classes.
-class OneLevelPOIChecker : public ftypes::BaseChecker
-{
-public:
-  OneLevelPOIChecker() : ftypes::BaseChecker(1 /* level */)
-  {
-    Classificator const & c = classif();
-
-    auto paths = {"amenity", "historic", "office", "railway", "shop", "sport", "tourism", "craft"};
-    for (auto const & path : paths)
-      m_types.push_back(c.GetTypeByPath({path}));
-  }
-};
-
-class IsPoiChecker
-{
-public:
-  DECLARE_CHECKER_INSTANCE(IsPoiChecker);
-
-  bool operator()(FeatureType & ft) const { return m_oneLevel(ft) || m_twoLevel(ft); }
-
-private:
-  OneLevelPOIChecker const m_oneLevel;
-  TwoLevelPOIChecker const m_twoLevel;
-};
 
 class IsComplexPoiChecker : public ftypes::BaseChecker
 {
   IsComplexPoiChecker() : ftypes::BaseChecker()
   {
-    Classificator const & c = classif();
-    base::StringIL const paths[] = {{"aeroway", "aerodrome"},
-                                    {"amenity", "hospital"},
-                                    {"amenity", "university"},
-                                    {"building", "train_station"},
-                                    {"historic", "archaeological_site"},
-                                    {"historic", "castle"},
-                                    {"historic", "fort"},
-                                    {"landuse", "cemetery"},
-                                    {"landuse", "churchyard"},
-                                    {"landuse", "commercial"},
-                                    {"landuse", "forest"},
-                                    {"landuse", "industrial"},
-                                    {"landuse", "retail"},
-                                    {"leisure", "garden"},
-                                    {"leisure", "nature_reserve"},
-                                    {"leisure", "park"},
-                                    {"leisure", "stadium"},
-                                    {"leisure", "water_park"},
-                                    {"natural", "beach"},
-                                    {"office", "company"},
-                                    {"railway", "station"},
-                                    {"shop", "mall"},
-                                    {"tourism", "museum"},
-                                    {"tourism", "gallery"}};
+    // For MatchPOIsWithParent matching. Some entries may be controversial here, but keep as-is for now.
+    // POI near "Complex POI" matching.
+    base::StringIL const paths[] = {
+        {"aeroway", "aerodrome"},
+        {"amenity", "hospital"},
+        {"amenity", "university"},
+        {"building", "train_station"},
+        {"historic", "archaeological_site"},
+        {"historic", "castle"},
+        {"historic", "fort"},
+        {"landuse", "cemetery"},
+        {"landuse", "churchyard"},
+        {"landuse", "commercial"},
+        {"landuse", "forest"},
+        {"landuse", "industrial"},
+        {"landuse", "retail"},
+        {"leisure", "garden"},
+        {"leisure", "nature_reserve"},
+        {"leisure", "park"},
+        {"leisure", "stadium"},
+        {"leisure", "water_park"},
+        {"natural", "beach"},
+        {"office", "company"},
+        {"railway", "station"},
+        {"shop", "mall"},
+        {"tourism", "museum"},
+        {"tourism", "gallery"}
+    };
 
+    Classificator const & c = classif();
     for (auto const & path : paths)
       m_types.push_back(c.GetTypeByPath(path));
   }
@@ -111,7 +66,13 @@ public:
 
   bool operator()(FeatureType & ft) const
   {
-    return !ft.GetHouseNumber().empty() || IsBuildingChecker::Instance()(ft);
+    if (!ft.GetHouseNumber().empty())
+      return true;
+
+    if (ft.GetGeomType() == feature::GeomType::Line)
+      return IsAddressInterpolChecker::Instance()(ft);
+    else
+      return IsBuildingChecker::Instance()(ft);
   }
 };
 }  // namespace
@@ -141,7 +102,7 @@ Model::Type Model::GetType(FeatureType & feature) const
   case LocalityType::City:
   case LocalityType::Town: return TYPE_CITY;
   case LocalityType::Village: return TYPE_VILLAGE;
-  case LocalityType::Count: ASSERT(false, ());    // no break here
+  case LocalityType::Count: ASSERT(false, ()); [[fallthrough]];
   case LocalityType::None: return TYPE_UNCLASSIFIED;
   }
 

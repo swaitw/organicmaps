@@ -4,8 +4,6 @@
 #include "base/assert.hpp"
 #include "base/string_utils.hpp"
 
-#include <algorithm>
-#include <vector>
 
 namespace url
 {
@@ -21,7 +19,7 @@ Url::Url(std::string const & url)
 
 Url Url::FromString(std::string const & url)
 {
-  bool const hasProtocol = strings::StartsWith(url, "http://") || strings::StartsWith(url, "https://");
+  bool const hasProtocol = url.starts_with("http://") || url.starts_with("https://");
   return Url(hasProtocol ? url : "https://" + url);
 }
 
@@ -115,6 +113,30 @@ string Join(string const & lhs, string const & rhs)
   return lhs + rhs;
 }
 
+string Slug(string const & raw)
+{
+  size_t const count = raw.size();
+  string result;
+  result.reserve(count);
+
+  for (size_t i = 0; i < count; ++i)
+  {
+    char const c = raw[i];
+    if (c < '-' || c == '/' || (c > '9' && c < 'A') || (c > 'Z' && c < '_') ||
+        c == '`' || (c > 'z' && c < '~') || c > '~')
+    {
+      // No more than two dashes in a row.
+      size_t sz = result.length();
+      if (sz < 2 || result[sz - 2] != '-' || result[sz - 1] != '-')
+        result += '-';
+    }
+    else
+      result += raw[i];
+  }
+
+  return result;
+}
+
 string UrlEncode(string const & rawUrl)
 {
   size_t const count = rawUrl.size();
@@ -149,6 +171,10 @@ string UrlDecode(string_view encodedUrl)
     {
       result += FromHex(encodedUrl.substr(i + 1, 2));
       i += 2;
+    }
+    else if (encodedUrl[i] == '+')
+    {
+      result += ' ';
     }
     else
     {

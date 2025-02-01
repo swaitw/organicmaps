@@ -14,9 +14,9 @@
 #endif
 
 // static
-uint32_t const FileReader::kDefaultLogPageSize = 10;
+uint32_t const FileReader::kDefaultLogPageSize = 10; // page size is 2^10 = 1024 = 1kb
 // static
-uint32_t const FileReader::kDefaultLogPageCount = 4;
+uint32_t const FileReader::kDefaultLogPageCount = 4; // page count is 2^4 = 16, i.e. 16 pages are cached
 
 class FileReader::FileReaderData
 {
@@ -55,7 +55,7 @@ private:
   {
   public:
     explicit FileDataWithCachedSize(std::string const & fileName)
-      : base::FileData(fileName, FileData::OP_READ), m_Size(FileData::Size())
+      : base::FileData(fileName, Op::READ), m_Size(FileData::Size())
     {
     }
 

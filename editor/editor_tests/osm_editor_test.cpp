@@ -216,6 +216,7 @@ EditorTest::~EditorTest()
 {
   editor::tests_support::TearDownEditorForTesting();
 
+  m_dataSource.ClearCache();
   for (auto const & file : m_mwmFiles)
     Cleanup(file);
 }
@@ -245,7 +246,7 @@ void EditorTest::GetFeatureTypeInfoTest()
 
     auto const featuresAfter = editor.m_features.Get();
     auto const fti = editor.GetFeatureTypeInfo(*featuresAfter, ft.GetID().m_mwmId, ft.GetID().m_index);
-    TEST_NOT_EQUAL(fti, 0, ());
+    TEST_NOT_EQUAL(fti, nullptr, ());
     TEST_EQUAL(fti->m_object.GetID(), ft.GetID(), ());
   });
 }
@@ -1036,6 +1037,7 @@ void EditorTest::LoadMapEditsTest()
   sort(features.begin(), features.end());
   TEST_EQUAL(features, loadedFeatures, ());
 
+  m_dataSource.DeregisterMap(m_mwmFiles.back().GetCountryFile());
   TEST(RemoveMwm(rfMwmId), ());
 
   auto const newRfMwmId = BuildMwm("RF", [](TestMwmBuilder & builder)
@@ -1352,7 +1354,7 @@ void EditorTest::LoadExistingEditsXml()
   });
 
   pugi::xml_document doc;
-  TEST(doc.load(data), ());
+  TEST(doc.load_string(data), ());
 
   auto memStorage = std::make_unique<editor::InMemoryStorage>();
   memStorage->Save(doc);

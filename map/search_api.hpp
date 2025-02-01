@@ -1,6 +1,5 @@
 #pragma once
 
-#include "map/bookmark.hpp"
 #include "map/bookmark_helpers.hpp"
 #include "map/everywhere_search_callback.hpp"
 #include "map/search_product_info.hpp"
@@ -17,15 +16,12 @@
 #include "geometry/point2d.hpp"
 #include "geometry/rect2d.hpp"
 
-#include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <string>
 #include <unordered_set>
-#include <utility>
 #include <vector>
+#include <string>
 
 class DataSource;
 
@@ -63,7 +59,7 @@ public:
 
     virtual bool ParseSearchQueryCommand(search::SearchParams const & /* params */) { return false; }
 
-    virtual m2::PointD GetMinDistanceBetweenResults() const { return {}; }
+    virtual m2::PointD GetMinDistanceBetweenResults() const { return {0, 0}; }
 
     virtual search::ProductInfo GetProductInfo(search::Result const & result) const { return {}; }
   };
@@ -118,18 +114,13 @@ public:
 
   void EnableIndexingOfBookmarksDescriptions(bool enable);
 
-  // A hint on the maximum number of bookmarks that can be stored in the
-  // search index for bookmarks. It is advisable that the client send
-  // OnBookmarksDeleted if the limit is crossed.
-  // The limit is not enforced by the Search API.
-  static size_t GetMaximumPossibleNumberOfBookmarksToIndex();
+  void SetLocale(std::string const & locale);
 
   // By default all created bookmarks are saved in BookmarksProcessor
   // but we do not index them in an attempt to save time and memory.
   // This method must be used to enable or disable indexing all current and future
   // bookmarks belonging to |groupId|.
   void EnableIndexingOfBookmarkGroup(kml::MarkGroupId const & groupId, bool enable);
-  bool IsIndexingOfBookmarkGroupEnabled(kml::MarkGroupId const & groupId);
   std::unordered_set<kml::MarkGroupId> const & GetIndexableGroups() const;
 
   // Returns the bookmarks search to its default, pre-launch state.

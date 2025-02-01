@@ -2,11 +2,8 @@
 #include "helpers.hpp"
 
 #include "indexer/classificator.hpp"
-#include "indexer/classificator_loader.hpp"
 #include "indexer/feature_visibility.hpp"
 #include "indexer/feature_data.hpp"
-
-#include "platform/platform.hpp"
 
 #include "base/logging.hpp"
 #include "base/stl_helpers.hpp"
@@ -57,6 +54,12 @@ public:
 
   void operator() (ClassifObject const * p, uint32_t type) const
   {
+    // We can't put TEST here, should check output manually. Or rewrite test in more sophisticated way.
+    // - place=county/region are non-drawable
+    // - historic=citywalls is not a Point
+    // - waterway=* [tunnel] are non-drawable
+    // - some highway,waterway are Point
+
     if (p->IsDrawableAny())
     {
       TypesHolder holder(m_geomType);
@@ -64,15 +67,14 @@ public:
 
       pair<int, int> const range = GetDrawableScaleRangeForRules(holder, m_rules);
       if (range.first == -1 || range.second == -1)
-        LOG(LINFO, ("No styles:", type, m_c.GetFullObjectName(type)));
+        LOG(LWARNING, ("No styles:", m_c.GetFullObjectName(type)));
     }
     else if (ftype::GetLevel(type) > 1)
-      LOG(LINFO, ("Type without any rules:", type, m_c.GetFullObjectName(type)));
+      LOG(LWARNING, ("Type without any rules:", m_c.GetFullObjectName(type)));
   }
 };
 
-void ForEachObject(Classificator const & c, vector<string_view> const & path, GeomType geomType,
-                   int rules)
+void ForEachObject(Classificator const & c, vector<string_view> const & path, GeomType geomType, int rules)
 {
   uint32_t const type = c.GetTypeByPath(path);
   ClassifObject const * pObj = c.GetObject(type);
@@ -101,12 +103,14 @@ void CheckLineStyles(Classificator const & c, string const & name)
 
 UNIT_TEST(Classificator_DrawingRules)
 {
-  styles::RunForEveryMapStyle([](MapStyle)
+  styles::RunForEveryMapStyle([](MapStyle style)
   {
+    if (style != MapStyle::MapStyleDefaultLight && style != MapStyle::MapStyleDefaultDark)
+      return;
+
     Classificator const & c = classif();
 
     LOG(LINFO, ("--------------- Point styles ---------------"));
-    CheckPointStyles(c, "landuse");
     CheckPointStyles(c, "amenity");
     CheckPointStyles(c, "historic");
     CheckPointStyles(c, "office");
@@ -130,7 +134,7 @@ UNIT_TEST(Classificator_DrawingRules)
 namespace
 {
 
-pair<int, int> GetMinMax(int level, vector<uint32_t> const & types, drule::rule_type_t ruleType)
+pair<int, int> GetMinMax(int level, vector<uint32_t> const & types, drule::TypeT ruleType)
 {
   pair<int, int> res(numeric_limits<int>::max(), numeric_limits<int>::min());
 
@@ -163,13 +167,13 @@ string CombineArrT(base::StringIL const & arrT)
   return result;
 }
 
-void CheckPriority(vector<base::StringIL> const & arrT, vector<size_t> const & arrI, drule::rule_type_t ruleType)
+void CheckPriority(vector<base::StringIL> const & arrT, vector<size_t> const & arrI, drule::TypeT ruleType)
 {
   Classificator const & c = classif();
   vector<vector<uint32_t> > types;
   vector<vector<string> > typesInfo;
 
-  styles::RunForEveryMapStyle([&](MapStyle style)
+  styles::RunForEveryMapStyle([&](MapStyle)
   {
     types.clear();
     typesInfo.clear();
@@ -215,7 +219,7 @@ void CheckPriority(vector<base::StringIL> const & arrT, vector<size_t> const & a
 // If someone disagrees with this order, please refer to VNG :)
 // natural-coastline
 // place-island = natural-land
-// natural-scrub,heath,grassland = landuse-grass,farm,farmland,forest
+// natural-scrub,heath,grassland = landuse-grass,farmland,forest
 // natural-water,lake = landuse-basin
 
 UNIT_TEST(Classificator_AreaPriority)
@@ -227,12 +231,12 @@ UNIT_TEST(Classificator_AreaPriority)
     {"place", "island"}, {"natural", "land"},
     // 2
     {"natural", "scrub"}, {"natural", "heath"}, {"natural", "grassland"},
-    {"landuse", "grass"}, {"landuse", "farm"}, {"landuse", "farmland"}, {"landuse", "forest"},
+    {"landuse", "grass"}, {"landuse", "farmland"}, {"landuse", "forest"},
     // ?
     //{"leisure", "park"}, {"leisure", "garden"}, - maybe next time (too tricky to do it now)
     // 3
-    {"natural", "water"}, {"natural", "water", "lake"}, {"landuse", "basin"}, {"waterway", "riverbank"}
-  }, {1, 2, 7, 4}, drule::area);
+    {"natural", "water"}, {"natural", "water", "lake"}, {"landuse", "basin"}
+  }, {1, 2, 6, 3}, drule::area);
 
   CheckPriority({
     // ? - linear waterways @todo: add ability to compare different drule types (areas vs lines)
@@ -258,6 +262,22 @@ UNIT_TEST(Classificator_PoiPriority)
   {
     CheckPriority({
       // 1
+      {"amenity", "drinking_water"},
+      // 2
+      {"tourism", "camp_site"},
+      // 3
+      {"tourism", "wilderness_hut"},
+      // 4
+      {"tourism", "alpine_hut"},
+    }, {1, 1, 1, 1}, drule::symbol);
+  }
+}
+
+UNIT_TEST(Classificator_MultipleTypesPoiPriority)
+{
+  {
+    CheckPriority({
+      // 1
       {"amenity", "atm"},
       // 2
       {"amenity", "bank"}
@@ -274,7 +294,7 @@ UNIT_TEST(Classificator_PoiPriority)
     }, {2, 5}, drule::symbol);
   }
 
-  /// @todo Check that all of sport=* icons priority is bigger than all of pitch, sport_center, playground.
+  /// @todo Check that all of sport=* icons priority is bigger than all of pitch, sports_center, recreation_ground.
 
   {
     CheckPriority({
@@ -297,10 +317,67 @@ UNIT_TEST(Classificator_PoiPriority)
   {
     CheckPriority({
       // 1
-      {"leisure", "playground"},
+      {"landuse", "recreation_ground"},
       // 2
-      {"sport", "cricket"}
+      {"sport", "multi"}
     }, {1, 1}, drule::symbol);
+  }
+}
+
+namespace
+{
+struct RangeEntry
+{
+  uint32_t m_type;
+  std::pair<int, int> m_range;
+
+  // From C++ 20.
+  // auto operator<=>(RangeEntry const &) const = default;
+  bool operator!=(RangeEntry const & rhs) const
+  {
+    return m_type != rhs.m_type || m_range != rhs.m_range;
+  }
+
+  friend std::string DebugPrint(RangeEntry const & e)
+  {
+    std::ostringstream ss;
+    ss << classif().GetReadableObjectName(e.m_type) << "; (" << e.m_range.first << "," << e.m_range.second << ")";
+    return ss.str();
+  }
+};
+} // namespace
+
+UNIT_TEST(Classificator_HighwayZoom_AcrossStyles)
+{
+  std::array<std::vector<RangeEntry>, MapStyleCount> scales;
+
+  styles::RunForEveryMapStyle([&scales](MapStyle style)
+  {
+    auto const & cl = classif();
+    uint32_t const type = cl.GetTypeByPath({"highway"});
+    ClassifObject const * pObj = cl.GetObject(type);
+
+    pObj->ForEachObjectInTree([&scales, style](ClassifObject const *, uint32_t type)
+    {
+      TypesHolder holder(GeomType::Line);
+      holder.Add(type);
+      scales[style].push_back({type, GetDrawableScaleRangeForRules(holder, RULE_LINE)});
+    }, type);
+  });
+
+  for (size_t iStyle = 1; iStyle < MapStyleCount; ++iStyle)
+  {
+    if (iStyle == MapStyleMerged)
+      continue;
+
+    // Don't put TEST, only diagnostic logs. In general, Clear and Vehical visibility styles are different
+    // for highways like: footway, path, steps, cycleway, bridleway, track, service.
+    TEST_EQUAL(scales[0].size(), scales[iStyle].size(), (iStyle));
+    for (size_t j = 0; j < scales[0].size(); ++j)
+    {
+      if (scales[0][j] != scales[iStyle][j])
+        LOG(LWARNING, (scales[0][j], scales[iStyle][j]));
+    }
   }
 }
 }  // namespace classificator_tests

@@ -7,9 +7,8 @@
 #import "MWMStorage+UI.h"
 #import "SwiftBridge.h"
 #import "MWMMapViewControlsManager+AddPlace.h"
-#import "location_util.h"
 
-#import <CoreApi/CoreApi.h>
+#import <CoreApi/Framework.h>
 #import <CoreApi/StringUtils.h>
 
 #include "platform/downloader_defines.hpp"
@@ -30,7 +29,7 @@ using namespace storage;
   return GetFramework().HasPlacePageInfo();
 }
 
-- (void)closePlacePage { GetFramework().DeactivateMapSelection(true); }
+- (void)closePlacePage { GetFramework().DeactivateMapSelection(); }
 
 - (void)routeFrom:(PlacePageData *)data {
   MWMRoutePoint *point = [self routePoint:data withType:MWMRoutePointTypeStart intermediateIndex:0];
@@ -87,8 +86,8 @@ using namespace storage;
   NSString *title = nil;
   if (data.previewData.title.length > 0) {
     title = data.previewData.title;
-  } else if (data.previewData.address.length > 0) {
-    title = data.previewData.address;
+  } else if (data.previewData.secondarySubtitle.length > 0) {
+    title = data.previewData.secondarySubtitle;
   } else if (data.previewData.subtitle.length > 0) {
     title = data.previewData.subtitle;
   } else if (data.bookmarkData != nil) {
@@ -121,8 +120,8 @@ using namespace storage;
   NSString *title = nil;
   if (data.previewData.title.length > 0) {
     title = data.previewData.title;
-  } else if (data.previewData.address.length > 0) {
-    title = data.previewData.address;
+  } else if (data.previewData.secondarySubtitle.length > 0) {
+    title = data.previewData.secondarySubtitle;
   } else if (data.previewData.subtitle.length > 0) {
     title = data.previewData.subtitle;
   } else if (data.bookmarkData != nil) {
@@ -143,11 +142,6 @@ using namespace storage;
                             intermediateIndex:intermediateIndex];
 }
 
-- (void)share:(PlacePageData *)data {
-  MWMActivityViewController * shareVC = [MWMActivityViewController shareControllerForPlacePage:data];
-  [shareVC presentInParentViewController:self.ownerViewController anchorView:nil]; // TODO: add anchor for iPad
-}
-
 - (void)editPlace
 {
   [self.ownerViewController openEditor];
@@ -155,12 +149,13 @@ using namespace storage;
 
 - (void)addBusiness
 {
-  [[MWMMapViewControlsManager manager] addPlace:YES hasPoint:NO point:m2::PointD()];
+  [[MWMMapViewControlsManager manager] addPlace:YES position:nullptr];
 }
 
 - (void)addPlace:(CLLocationCoordinate2D)coordinate
 {
-  [[MWMMapViewControlsManager manager] addPlace:NO hasPoint:YES point:location_helpers::ToMercator(coordinate)];
+  auto const position = location_helpers::ToMercator(coordinate);
+  [[MWMMapViewControlsManager manager] addPlace:NO position:&position];
 }
 
 - (void)addBookmark:(PlacePageData *)data {
@@ -189,10 +184,14 @@ using namespace storage;
 {
   auto &f = GetFramework();
   f.GetBookmarkManager().GetEditSession().DeleteBookmark(data.bookmarkData.bookmarkId);
-
   [MWMFrameworkHelper updateAfterDeleteBookmark];
-
   [data updateBookmarkStatus];
+}
+
+- (void)removeTrack:(PlacePageData *)data
+{
+  auto &f = GetFramework();
+  f.GetBookmarkManager().GetEditSession().DeleteTrack(data.trackData.trackId);
 }
 
 - (void)call:(PlacePageData *)data {
@@ -206,6 +205,20 @@ using namespace storage;
                                                        instantiateViewControllerWithIdentifier:@"MWMEditBookmarkController"];
   [editBookmarkController configureWithPlacePageData:data];
   [[MapViewController sharedController].navigationController pushViewController:editBookmarkController animated:YES];
+}
+
+- (void)editTrack:(PlacePageData *)data {
+  if (data.objectType != PlacePageObjectTypeTrack) {
+    ASSERT_FAIL("editTrack called for non-track object");
+    return;
+  }
+  EditTrackViewController * editTrackController = [[EditTrackViewController alloc] initWithTrackId:data.trackData.trackId editCompletion:^(BOOL edited) {
+    if (!edited)
+      return;
+    [MWMFrameworkHelper updatePlacePageData];
+    [data updateBookmarkStatus];
+  }];
+  [[MapViewController sharedController].navigationController pushViewController:editTrackController animated:YES];
 }
 
 - (void)showPlaceDescription:(NSString *)htmlString
@@ -229,44 +242,52 @@ using namespace storage;
 }
 
 - (void)openWebsite:(PlacePageData *)data {
-  [self.ownerViewController openUrl:data.infoData.website];
+  [self.ownerViewController openUrl:data.infoData.website externally:YES];
+}
+
+- (void)openWebsiteMenu:(PlacePageData *)data {
+  [self.ownerViewController openUrl:data.infoData.websiteMenu externally:YES];
+}
+
+- (void)openKayak:(PlacePageData *)data {
+  [self.ownerViewController openUrl:data.infoData.kayak externally:YES];
 }
 
 - (void)openWikipedia:(PlacePageData *)data {
-  [self.ownerViewController openUrl:data.infoData.wikipedia];
+  [self.ownerViewController openUrl:data.infoData.wikipedia externally:YES];
 }
 
 - (void)openWikimediaCommons:(PlacePageData *)data {
-  [self.ownerViewController openUrl:data.infoData.wikimediaCommons];
+  [self.ownerViewController openUrl:data.infoData.wikimediaCommons externally:YES];
 }
 
 - (void)openFacebook:(PlacePageData *)data {
   std::string const fullUrl = osm::socialContactToURL(osm::MapObject::MetadataID::FMD_CONTACT_FACEBOOK, [data.infoData.facebook UTF8String]);
-  [self.ownerViewController openUrl:ToNSString(fullUrl)];
+  [self.ownerViewController openUrl:ToNSString(fullUrl) externally:YES];
 }
 
 - (void)openInstagram:(PlacePageData *)data {
   std::string const fullUrl = osm::socialContactToURL(osm::MapObject::MetadataID::FMD_CONTACT_INSTAGRAM, [data.infoData.instagram UTF8String]);
-  [self.ownerViewController openUrl:ToNSString(fullUrl)];
+  [self.ownerViewController openUrl:ToNSString(fullUrl) externally:YES];
 }
 
 - (void)openTwitter:(PlacePageData *)data {
   std::string const fullUrl = osm::socialContactToURL(osm::MapObject::MetadataID::FMD_CONTACT_TWITTER, [data.infoData.twitter UTF8String]);
-  [self.ownerViewController openUrl:ToNSString(fullUrl)];
+  [self.ownerViewController openUrl:ToNSString(fullUrl) externally:YES];
 }
 
 - (void)openVk:(PlacePageData *)data {
   std::string const fullUrl = osm::socialContactToURL(osm::MapObject::MetadataID::FMD_CONTACT_VK, [data.infoData.vk UTF8String]);
-  [self.ownerViewController openUrl:ToNSString(fullUrl)];
+  [self.ownerViewController openUrl:ToNSString(fullUrl) externally:YES];
 }
 
 - (void)openLine:(PlacePageData *)data {
   std::string const fullUrl = osm::socialContactToURL(osm::MapObject::MetadataID::FMD_CONTACT_LINE, [data.infoData.line UTF8String]);
-  [self.ownerViewController openUrl:ToNSString(fullUrl)];
+  [self.ownerViewController openUrl:ToNSString(fullUrl) externally:YES];
 }
 
 - (void)openEmail:(PlacePageData *)data {
-  [UIApplication.sharedApplication openURL:data.infoData.emailUrl options:@{} completionHandler:nil];
+  [MailComposer sendEmailWithSubject:nil body:nil toRecipients:@[data.infoData.email] attachmentFileURL:nil];
 }
 
 - (void)openElevationDifficultPopup:(PlacePageData *)data {

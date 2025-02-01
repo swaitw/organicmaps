@@ -10,8 +10,10 @@ For more information, please see the source code at [`Framework::ParseSearchQuer
 
 ### Themes
 
-- `?dark` or `mapstyle:dark`: Enable night mode for the map view only. You may need to change the zoom level to fully apply the new mode.
-- `?light` or `mapstyle:light`: Enable light mode for the map view only. You may need to change the zoom level to fully apply the new mode.
+- `?dark` or `mapstyle:dark`: Enable night mode for the map view only. You may need to change the zoom level to reload the view.
+- `?light` or `mapstyle:light`: Enable light mode for the map view only. You may need to change the zoom level to reload the view.
+- `?odark` or `mapstyle:outdoors_dark`: Same as `?dark`, but using the outdoor variant.
+- `?olight` or `mapstyle:outdoors_light`: Same as `?light`, but using the outdoor variant.
 - `?vdark` or `mapstyle:vdark`: Same as `?dark`, but using the vehicle variant.
 - `?vlight` or `mapstyle:vlight`: Same as `?light`, but using the vehicle variant.
 
@@ -27,10 +29,18 @@ For more information, please see the source code at [`Framework::ParseSearchQuer
 - `?isolines`: Enable the isolines layer.
 - `?no-isolines`: Disable the isolines layer.
 
+### 3D mode (for the Qt desktop app only)
+- `?3d`: Enable 3D (perspective) mode.
+- `?b3d`: Enable 3D buildings.
+- `?2d`: Disable 3D mode and buildings.
+
+The source code is at [`SearchPanel::Try3dModeCmd`](../qt/search_panel.cpp).
+
 ### Information
 
 - `?debug-info`: Show renderer version, zoom scale and FPS counter in the top left corner of the map.
 - `?debug-info-always`: Same as `?debug-info`, but persists across restarts.
+- `?no-debug-info`: Disables the debug info.
 - `?debug-rect`: Shows boxes around icons and labels. When the icon/label is shown, the box is green. When the icon/label cannot be shown, the box is red with a blue arrow indicating which icon/label prevents rendering. When the icon/label is not ready for display, the box is yellow (check the `Update` method of [`dp::OverlayHandle`](../drape/overlay_handle.hpp) and derived classes for more information).
 - `?no-debug-rect`: Disables the debug boxes.
 

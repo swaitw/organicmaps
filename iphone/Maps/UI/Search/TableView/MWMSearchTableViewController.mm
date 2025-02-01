@@ -6,14 +6,11 @@
 
 #include "platform/localization.hpp"
 
+#include "search/result.hpp"
+
 namespace {
 NSString *GetLocalizedTypeName(search::Result const &result) {
-  if (result.GetResultType() != search::Result::Type::Feature)
-    return @"";
-
-  auto const readableType = classif().GetReadableObjectName(result.GetFeatureType());
-
-  return @(platform::GetLocalizedTypeName(readableType).c_str());
+  return @(result.GetLocalizedFeatureType().c_str());
 }
 }
 

@@ -14,7 +14,7 @@
 
 #include "indexer/feature.hpp"
 #include "indexer/feature_algo.hpp"
-#include "indexer/features_vector.hpp"
+#include "indexer/ftypes_matcher.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "geometry/mercator.hpp"
@@ -23,13 +23,11 @@
 
 #include "base/cancellable.hpp"
 #include "base/logging.hpp"
-#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <memory>
-#include <unordered_map>
 #include <vector>
 
 class DataSource;
@@ -72,13 +70,16 @@ public:
     switch (parent.m_type)
     {
     case Model::TYPE_SUBPOI:
-    case Model::TYPE_CITY:
     case Model::TYPE_VILLAGE:
     case Model::TYPE_STATE:
     case Model::TYPE_COUNTRY:
     case Model::TYPE_UNCLASSIFIED:
     case Model::TYPE_COUNT:
       ASSERT(false, ("Invalid parent layer type:", parent.m_type));
+      break;
+    case Model::TYPE_CITY:
+      ASSERT_EQUAL(child.m_type, Model::TYPE_BUILDING, ());
+      MatchBuildingsWithPlace(child, parent, fn);
       break;
     case Model::TYPE_COMPLEX_POI:
       ASSERT_EQUAL(child.m_type, Model::TYPE_SUBPOI, ());
@@ -89,8 +90,7 @@ public:
       MatchPOIsWithParent(child, parent, fn);
       break;
     case Model::TYPE_STREET:
-      ASSERT(Model::IsPoi(child.m_type) || child.m_type == Model::TYPE_BUILDING,
-             ("Invalid child layer type:", child.m_type));
+      ASSERT(Model::IsPoiOrBuilding(child.m_type), ("Invalid child layer type:", child.m_type));
       if (Model::IsPoi(child.m_type))
         MatchPOIsWithStreets(child, parent, fn);
       else
@@ -100,7 +100,9 @@ public:
       ASSERT(child.m_type == Model::TYPE_STREET || child.m_type == Model::TYPE_BUILDING ||
              Model::IsPoi(child.m_type), ());
       // Avoid matching buildings to suburb without street.
-      if (child.m_type != Model::TYPE_BUILDING)
+      if (child.m_type == Model::TYPE_BUILDING)
+        MatchBuildingsWithPlace(child, parent, fn);
+      else
         MatchChildWithSuburbs(child, parent, fn);
       break;
     }
@@ -109,6 +111,8 @@ public:
   void OnQueryFinished();
 
 private:
+  std::vector<uint32_t> const & GetPlaceAddrFeatures(uint32_t placeId, std::function<CBV ()> const & fn);
+
   void BailIfCancelled() { ::search::BailIfCancelled(m_cancellable); }
 
   static bool HouseNumbersMatch(FeatureType & feature, std::vector<house_numbers::Token> const & queryParse)
@@ -116,8 +120,12 @@ private:
     auto const interpol = ftypes::IsAddressInterpolChecker::Instance().GetInterpolType(feature);
     if (interpol != feature::InterpolType::None)
       return house_numbers::HouseNumbersMatchRange(feature.GetRef(), queryParse, interpol);
-    else
-      return house_numbers::HouseNumbersMatch(strings::MakeUniString(feature.GetHouseNumber()), queryParse);
+
+    auto const uniHouse = strings::MakeUniString(feature.GetHouseNumber());
+    if (feature.GetID().IsEqualCountry({"Czech", "Slovakia"}))
+      return house_numbers::HouseNumbersMatchConscription(uniHouse, queryParse);
+
+    return house_numbers::HouseNumbersMatch(uniHouse, queryParse);
   }
 
   template <typename Fn>
@@ -305,8 +313,7 @@ private:
   }
 
   template <typename Fn>
-  void MatchBuildingsWithStreets(FeaturesLayer const & child, FeaturesLayer const & parent,
-                                 Fn && fn)
+  void MatchBuildingsWithStreets(FeaturesLayer const & child, FeaturesLayer const & parent, Fn && fn)
   {
     ASSERT_EQUAL(child.m_type, Model::TYPE_BUILDING, ());
     ASSERT_EQUAL(parent.m_type, Model::TYPE_STREET, ());
@@ -324,7 +331,7 @@ private:
       {
         BailIfCancelled();
 
-        uint32_t const streetId = GetMatchingStreet(houseId);
+        uint32_t const streetId = GetMatchingStreet({m_context->GetId(), houseId});
         if (std::binary_search(streets.begin(), streets.end(), streetId))
           fn(houseId, streetId);
       }
@@ -335,8 +342,7 @@ private:
     ParseQuery(child.m_subQuery, child.m_lastTokenIsPrefix, queryParse);
 
     uint32_t numFilterInvocations = 0;
-    auto const houseNumberFilter = [&](uint32_t houseId, uint32_t streetId,
-                                       std::unique_ptr<FeatureType> & feature)
+    auto const houseNumberFilter = [&](uint32_t houseId, uint32_t streetId)
     {
       ++numFilterInvocations;
       if ((numFilterInvocations & 0xFF) == 0)
@@ -348,12 +354,9 @@ private:
       if (m_postcodes && !m_postcodes->HasBit(houseId) && !m_postcodes->HasBit(streetId))
         return false;
 
+      std::unique_ptr<FeatureType> feature = GetByIndex(houseId);
       if (!feature)
-      {
-        feature = GetByIndex(houseId);
-        if (!feature)
-          return false;
-      }
+        return false;
 
       if (!child.m_hasDelayedFeatures)
         return false;
@@ -361,20 +364,16 @@ private:
       return HouseNumbersMatch(*feature, queryParse);
     };
 
-    /// @todo We can't make FeatureType robust cache now, but good to have some FeatureCached class.
-    std::unordered_map<uint32_t, bool> cache;
-    auto const cachingHouseNumberFilter = [&](uint32_t houseId, uint32_t streetId,
-                                              std::unique_ptr<FeatureType> & feature)
-    {
-      auto const it = cache.find(houseId);
-      if (it != cache.cend())
-        return it->second;
-      bool const result = houseNumberFilter(houseId, streetId, feature);
-      cache[houseId] = result;
-      return result;
-    };
+    // Cache is not needed since we process unique and mapped-only house->street.
+//    std::unordered_map<uint32_t, bool> cache;
+//    auto const cachingHouseNumberFilter = [&](uint32_t houseId, uint32_t streetId)
+//    {
+//      auto const res = cache.emplace(houseId, false);
+//      if (res.second)
+//        res.first->second = houseNumberFilter(houseId, streetId);
+//      return res.first->second;
+//    };
 
-    ProjectionOnStreet proj;
     for (uint32_t streetId : streets)
     {
       BailIfCancelled();
@@ -385,40 +384,76 @@ private:
 
       for (uint32_t houseId : street.m_features)
       {
-        std::unique_ptr<FeatureType> feature;
-        if (!cachingHouseNumberFilter(houseId, streetId, feature))
-          continue;
-
-        if (!feature)
-        {
-          feature = GetByIndex(houseId);
-          if (!feature)
-            continue;
-        }
-
-        /// @todo Should be optimized, we already have street candidate and no need to call GetNearbyStreets inside.
-        if (GetMatchingStreet(*feature) == streetId)
+        if (houseNumberFilter(houseId, streetId))
           fn(houseId, streetId);
       }
     }
   }
 
   template <typename Fn>
+  void MatchBuildingsWithPlace(FeaturesLayer const & child, FeaturesLayer const & parent, Fn && fn)
+  {
+    ASSERT_EQUAL(child.m_type, Model::TYPE_BUILDING, ());
+
+    auto const & buildings = *child.m_sortedFeatures;
+    uint32_t const placeId = parent.m_sortedFeatures->front();
+    auto const & ids = GetPlaceAddrFeatures(placeId, parent.m_getFeatures);
+
+    if (!buildings.empty())
+    {
+      for (uint32_t houseId : buildings)
+      {
+        if (std::binary_search(ids.begin(), ids.end(), houseId))
+          fn(houseId, placeId);
+      }
+    }
+    if (!child.m_hasDelayedFeatures)
+      return;
+
+    std::vector<house_numbers::Token> queryParse;
+    ParseQuery(child.m_subQuery, child.m_lastTokenIsPrefix, queryParse);
+
+    uint32_t numFilterInvocations = 0;
+    auto const houseNumberFilter = [&](uint32_t houseId)
+    {
+      ++numFilterInvocations;
+      if ((numFilterInvocations & 0xFF) == 0)
+        BailIfCancelled();
+
+      if (m_postcodes && !m_postcodes->HasBit(houseId))
+        return false;
+
+      /// @todo Add house -> number cache for this and MatchBuildingsWithStreets?
+      std::unique_ptr<FeatureType> feature = GetByIndex(houseId);
+      if (!feature)
+        return false;
+
+      return HouseNumbersMatch(*feature, queryParse);
+    };
+
+    for (uint32_t houseId : ids)
+    {
+      if (houseNumberFilter(houseId))
+        fn(houseId, placeId);
+    }
+  }
+
+  template <typename Fn>
   void MatchChildWithSuburbs(FeaturesLayer const & child, FeaturesLayer const & parent, Fn && fn)
   {
-    // We have pre-matched features from geocoder.
-    auto const & childFeatures = *child.m_sortedFeatures;
-    CHECK_EQUAL(parent.m_sortedFeatures->size(), 1, ());
-    auto const & suburb = parent.m_sortedFeatures->front();
-
-    for (auto const & feature : childFeatures)
-      fn(feature, suburb);
+    // Keep the old logic - simple stub that matches all childs. They will be filtered after in Geocoder.
+    /// @todo Can intersect with parent.m_getFeatures here.
+    uint32_t const suburbId = parent.m_sortedFeatures->front();
+    for (uint32_t feature : *child.m_sortedFeatures)
+      fn(feature, suburbId);
   }
 
   // Returns id of a street feature corresponding to a |houseId|/|houseFeature|, or
   // kInvalidId if there're not such street.
-  uint32_t GetMatchingStreet(uint32_t houseId);
+  uint32_t GetMatchingStreet(FeatureID const & houseId);
   uint32_t GetMatchingStreet(FeatureType & houseFeature);
+  template <class FeatureGetterT>
+  uint32_t GetMatchingStreetImpl(FeatureID const & id, FeatureGetterT && getter);
 
   using Street = ReverseGeocoder::Street;
   using Streets = std::vector<Street>;
@@ -451,6 +486,9 @@ private:
   // supports only one street for a building, whereas buildings can be
   // located on multiple streets.
   Cache<uint32_t, uint32_t> m_matchingStreetsCache;
+
+  // Cache of addresses that belong to a place (city/village).
+  Cache<uint32_t, std::vector<uint32_t>> m_place2address;
 
   StreetVicinityLoader m_loader;
   base::Cancellable const & m_cancellable;

@@ -8,17 +8,14 @@
 #include "drape/texture_manager.hpp"
 #include "drape/utils/vertex_decl.hpp"
 
-#include "indexer/map_style_reader.hpp"
-
 #include "base/buffer_vector.hpp"
-#include "base/logging.hpp"
 
 #include <algorithm>
 
 namespace df
 {
 
-AreaShape::AreaShape(std::vector<m2::PointD> && triangleList, BuildingOutline && buildingOutline,
+AreaShape::AreaShape(std::vector<m2::PointD> triangleList, BuildingOutline && buildingOutline,
                      AreaViewParams const & params)
   : m_vertexes(std::move(triangleList))
   , m_buildingOutline(std::move(buildingOutline))
@@ -59,7 +56,8 @@ void AreaShape::DrawArea(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::Batch
   for (m2::PointD const & vertex : m_vertexes)
     vertexes.emplace_back(ToShapeVertex3(vertex), uv);
 
-  auto state = CreateRenderState(gpu::Program::Area, DepthLayer::GeometryLayer);
+  auto const areaProgram = m_params.m_color.GetAlpha() == 255 ? gpu::Program::Area : gpu::Program::TransparentArea;
+  auto state = CreateRenderState(areaProgram, DepthLayer::GeometryLayer);
   state.SetDepthTestEnabled(m_params.m_depthTestEnabled);
   state.SetColorTexture(texture);
 

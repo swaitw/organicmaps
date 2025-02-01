@@ -9,7 +9,7 @@
 
 #include "search/result.hpp"
 
-#include "routing/router.hpp"
+#include "indexer/map_style.hpp"
 
 #include <QtWidgets/QRubberBand>
 
@@ -60,8 +60,6 @@ public:
 
   void SetMapStyle(MapStyle mapStyle);
 
-  void SetRouter(routing::RouterType routerType);
-
   void SetRuler(bool enabled);
 
   RouteMarkType GetRoutePointAddMode() const { return m_routePointAddMode; }
@@ -71,12 +69,19 @@ public:
   void OnRouteRecommendation(RoutingManager::Recommendation recommendation);
 
   void RefreshDrawingRules();
+  void SetMapStyleToDefault();
+  void SetMapStyleToVehicle();
+  void SetMapStyleToOutdoors();
 
 protected:
   /// @name Overriden from MapWidget.
   //@{
   void initializeGL() override;
 
+  // Touch events
+  bool event(QEvent * event) override;
+
+  // Non-touch events
   void mousePressEvent(QMouseEvent * e) override;
   void mouseMoveEvent(QMouseEvent * e) override;
   void mouseReleaseEvent(QMouseEvent * e) override;
@@ -88,7 +93,7 @@ protected:
 private:
   void SubmitFakeLocationPoint(m2::PointD const & pt);
   void SubmitRulerPoint(m2::PointD const & pt);
-  void SubmitRoutingPoint(m2::PointD const & pt);
+  void SubmitRoutingPoint(m2::PointD const & pt, bool pointIsMercator);
   void SubmitBookmark(m2::PointD const & pt);
   void ShowPlacePage();
 
@@ -96,7 +101,7 @@ private:
                                   bool fromPackedPolygon, bool boundingBox);
 
   m2::PointD P2G(m2::PointD const & pt) const;
-  m2::PointD GetCoordsFromSettingsIfExists(bool start, m2::PointD const & pt) const;
+  m2::PointD GetCoordsFromSettingsIfExists(bool start, m2::PointD const & pt, bool pointIsMercator) const;
 
   QRubberBand * m_rubberBand;
   QPoint m_rubberBandOrigin;

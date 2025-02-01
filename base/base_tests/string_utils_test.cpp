@@ -6,11 +6,7 @@
 #include <cfloat>
 #include <cmath>
 #include <fstream>
-#include <functional>
-#include <iomanip>
 #include <limits>
-#include <list>
-#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -27,20 +23,12 @@ UNIT_TEST(LowerUniChar)
 {
   // Load unicode case folding table.
 
-  // To use Platform class here, we need to add many link stuff ..
-  // string const fName = GetPlatform().WritablePathForFile("CaseFolding.test");
-  std::string const fName = "./data/CaseFolding.test";
-
-  std::ifstream file(fName.c_str());
-  if (!file.good())
-  {
-    LOG(LWARNING, ("Can't open unicode test file", fName));
-    return;
-  }
+  static char constexpr kFile[] = "./data/CaseFolding.test";
+  std::ifstream file(kFile);
+  TEST(file.is_open(), (kFile));
 
   size_t fCount = 0, cCount = 0;
-  typedef std::unordered_map<strings::UniChar, strings::UniString> mymap;
-  mymap m;
+  std::unordered_map<strings::UniChar, strings::UniString> m;
   std::string line;
   while (file.good())
   {
@@ -54,9 +42,10 @@ UNIT_TEST(LowerUniChar)
     if (!semicolon)
       continue;
 
-    std::istringstream stream((std::string(*semicolon)));
-    strings::UniChar uc;
+    std::istringstream stream{std::string{*semicolon}};
+    uint32_t uc;
     stream >> std::hex >> uc;
+    ASSERT(stream, ("Overflow"));
     ++semicolon;
 
     auto const type = *semicolon;
@@ -72,7 +61,7 @@ UNIT_TEST(LowerUniChar)
     {
       stream.clear();
       stream.str(std::string(*spacer));
-      strings::UniChar smallCode;
+      uint32_t smallCode;
       stream >> std::hex >> smallCode;
       us.push_back(smallCode);
       ++spacer;
@@ -103,7 +92,7 @@ UNIT_TEST(LowerUniChar)
   // full range unicode table test
   for (strings::UniChar c = 0; c < 0x11000; ++c)
   {
-    mymap::iterator found = m.find(c);
+    auto const found = m.find(c);
     if (found == m.end())
     {
       TEST_EQUAL(c, strings::LowerUniChar(c), ());
@@ -678,6 +667,17 @@ UNIT_TEST(to_string_dac)
   TEST_EQUAL(strings::to_string_dac(1.0 + 1.0E-14, 15), "1.00000000000001", ());
 }
 
+UNIT_TEST(to_string_width)
+{
+  TEST_EQUAL(strings::to_string_width(123, 5), "00123", ());
+  TEST_EQUAL(strings::to_string_width(99, 3), "099", ());
+  TEST_EQUAL(strings::to_string_width(0, 4), "0000", ());
+  TEST_EQUAL(strings::to_string_width(-10, 4), "-0010", ());
+  TEST_EQUAL(strings::to_string_width(545, 1), "545", ());
+  TEST_EQUAL(strings::to_string_width(1073741824, 0), "1073741824", ());
+}
+
+
 struct FunctorTester
 {
   size_t & m_index;
@@ -865,28 +865,23 @@ UNIT_TEST(Normalize_Special)
 
 UNIT_TEST(UniStringToUtf8)
 {
-  char const utf8Text[] = "У нас исходники хранятся в Utf8!";
-  strings::UniString uniS = strings::MakeUniString(utf8Text);
+  char constexpr utf8Text[] = "У нас исходники хранятся в Utf8!";
+  auto const uniS = strings::MakeUniString(utf8Text);
   TEST_EQUAL(std::string(utf8Text), strings::ToUtf8(uniS), ());
+}
+
+UNIT_TEST(UniStringToUtf16)
+{
+  std::string_view constexpr utf8sv = "Текст";
+  static std::u16string_view constexpr utf16sv = u"Текст";
+  TEST_EQUAL(utf16sv, strings::ToUtf16(utf8sv), ());
 }
 
 UNIT_TEST(StartsWith)
 {
   using namespace strings;
 
-  TEST(StartsWith(std::string(), ""), ());
-
-  std::string s("xyz");
-  TEST(StartsWith(s, ""), ());
-  TEST(StartsWith(s, "x"), ());
-  TEST(StartsWith(s, 'x'), ());
-  TEST(!StartsWith(s, 'z'), ());
-  TEST(StartsWith(s, "xyz"), ());
-  TEST(!StartsWith(s, "xyzabc"), ());
-  TEST(!StartsWith(s, "ayz"), ());
-  TEST(!StartsWith(s, "axy"), ());
-
-  UniString const us = MakeUniString(s);
+  UniString const us = MakeUniString("xyz");
   TEST(StartsWith(us, UniString()), ());
   TEST(StartsWith(us, MakeUniString("x")), ());
   TEST(StartsWith(us, MakeUniString("xyz")), ());
@@ -898,43 +893,15 @@ UNIT_TEST(StartsWith)
 UNIT_TEST(EndsWith)
 {
   using namespace strings;
-  {
-    TEST(EndsWith(std::string(), ""), ());
-  }
-  {
-    std::string const s("xyz");
-    TEST(EndsWith(s, ""), ());
-    TEST(EndsWith(s, "z"), ());
-    TEST(EndsWith(s, 'z'), ());
-    TEST(!EndsWith(s, 'x'), ());
-    TEST(EndsWith(s, "yz"), ());
-    TEST(EndsWith(s, "xyz"), ());
-    TEST(!EndsWith(s, "abcxyz"), ());
-    TEST(!EndsWith(s, "ayz"), ());
-    TEST(!EndsWith(s, "axyz"), ());
-  }
-  {
-    auto const s = MakeUniString("zюя");
-    TEST(EndsWith(s, MakeUniString("")), ());
-    TEST(EndsWith(s, MakeUniString("я")), ());
-    TEST(EndsWith(s, MakeUniString("юя")), ());
-    TEST(EndsWith(s, MakeUniString("zюя")), ());
-    TEST(!EndsWith(s, MakeUniString("абвгдzюя")), ());
-    TEST(!EndsWith(s, MakeUniString("aюя")), ());
-    TEST(!EndsWith(s, MakeUniString("1zюя")), ());
-  }
-  {
-    std::string const s("abcd");
-    TEST(EndsWith(s, std::string_view{""}), ());
-    TEST(EndsWith(s, std::string_view{"d"}), ());
-    TEST(EndsWith(s, std::string_view{"bcd"}), ());
-    TEST(EndsWith(s, std::string_view{"abcd"}), ());
-    TEST(!EndsWith(s, std::string_view{"dd"}), ());
-    TEST(!EndsWith(s, std::string_view{"c\""}), ());
-    TEST(!EndsWith(s, std::string_view{"cde"}), ());
-    TEST(!EndsWith(s, std::string_view{"abcde"}), ());
-    TEST(!EndsWith(s, std::string_view{"0abcd"}), ());
-  }
+
+  auto const s = MakeUniString("zюя");
+  TEST(EndsWith(s, MakeUniString("")), ());
+  TEST(EndsWith(s, MakeUniString("я")), ());
+  TEST(EndsWith(s, MakeUniString("юя")), ());
+  TEST(EndsWith(s, MakeUniString("zюя")), ());
+  TEST(!EndsWith(s, MakeUniString("абвгдzюя")), ());
+  TEST(!EndsWith(s, MakeUniString("aюя")), ());
+  TEST(!EndsWith(s, MakeUniString("1zюя")), ());
 }
 
 UNIT_TEST(EatPrefix_EatSuffix)
@@ -1259,4 +1226,23 @@ UNIT_TEST(Trim)
 
   strings::Trim(str, "tsgn");
   TEST_EQUAL(str, "ri", ());
+
+  std::string_view v = "\"abc ";
+  strings::Trim(v, "\" ");
+  TEST_EQUAL(v, "abc", ());
+
+  v = "aaa";
+  strings::Trim(v, "a");
+  TEST(v.empty(), ());
+}
+
+UNIT_TEST(ToLower_ToUpper)
+{
+  std::string s = "AbC0;9z";
+
+  strings::AsciiToLower(s);
+  TEST_EQUAL(s, "abc0;9z", ());
+
+  strings::AsciiToUpper(s);
+  TEST_EQUAL(s, "ABC0;9Z", ());
 }

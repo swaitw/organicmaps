@@ -4,16 +4,15 @@
 
 #include "storage/country_info_getter.hpp"
 
-#include "indexer/categories_holder.hpp"
 #include "indexer/classificator.hpp"
 #include "indexer/feature.hpp"
 #include "indexer/feature_algo.hpp"
 #include "indexer/feature_utils.hpp"
 #include "indexer/ftypes_matcher.hpp"
-#include "indexer/map_object.hpp"
 #include "indexer/road_shields_parser.hpp"
 
 #include "platform/measurement_utils.hpp"
+#include "platform/localization.hpp"
 
 #include "base/string_utils.hpp"
 
@@ -81,15 +80,15 @@ bool PreRankerResult::LessRankAndPopularity(PreRankerResult const & lhs, PreRank
     return lhs.m_info.m_rank > rhs.m_info.m_rank;
   if (lhs.m_info.m_popularity != rhs.m_info.m_popularity)
     return lhs.m_info.m_popularity > rhs.m_info.m_popularity;
+
+  /// @todo Remove this epilog when we will have _enough_ ranks and popularities in data.
   return lhs.m_info.m_distanceToPivot < rhs.m_info.m_distanceToPivot;
 }
 
 // static
 bool PreRankerResult::LessDistance(PreRankerResult const & lhs, PreRankerResult const & rhs)
 {
-  if (lhs.m_info.m_distanceToPivot != rhs.m_info.m_distanceToPivot)
-    return lhs.m_info.m_distanceToPivot < rhs.m_info.m_distanceToPivot;
-  return lhs.m_info.m_rank > rhs.m_info.m_rank;
+  return lhs.m_info.m_distanceToPivot < rhs.m_info.m_distanceToPivot;
 }
 
 // static
@@ -121,11 +120,7 @@ bool PreRankerResult::LessByExactMatch(PreRankerResult const & lhs, PreRankerRes
   if (lScore != rScore)
     return lScore;
 
-  auto const byTokens = CompareByTokensMatch(lhs, rhs);
-  if (byTokens != 0)
-    return byTokens == -1;
-
-  return LessDistance(lhs, rhs);
+  return CompareByTokensMatch(lhs, rhs) == -1;
 }
 
 bool PreRankerResult::CategoriesComparator::operator()(PreRankerResult const & lhs,
@@ -174,7 +169,7 @@ RankerResult::RankerResult(FeatureType & ft, m2::PointD const & center,
 
   m_region.SetParams(fileName, center);
 
-  FillDetails(ft, m_details);
+  FillDetails(ft, m_str, m_details);
 }
 
 RankerResult::RankerResult(FeatureType & ft, std::string const & fileName)
@@ -186,13 +181,14 @@ RankerResult::RankerResult(FeatureType & ft, std::string const & fileName)
 RankerResult::RankerResult(double lat, double lon)
   : m_str("(" + measurement_utils::FormatLatLon(lat, lon) + ")"), m_resultType(Type::LatLon)
 {
-  m_region.SetParams(string(), mercator::FromLatLon(lat, lon));
+  m_region.SetParams({}, mercator::FromLatLon(lat, lon));
 }
 
 RankerResult::RankerResult(m2::PointD const & coord, string_view postcode)
   : m_str(postcode), m_resultType(Type::Postcode)
 {
-  m_region.SetParams(string(), coord);
+  strings::AsciiToUpper(m_str);
+  m_region.SetParams({}, coord);
 }
 
 bool RankerResult::GetCountryId(storage::CountryInfoGetter const & infoGetter, uint32_t ftype,
@@ -254,13 +250,19 @@ bool RankerResult::RegionInfo::GetCountryId(storage::CountryInfoGetter const & i
 }
 
 // Functions ---------------------------------------------------------------------------------------
-void FillDetails(FeatureType & ft, Result::Details & details)
+void FillDetails(FeatureType & ft, std::string const & name, Result::Details & details)
 {
   if (details.m_isInitialized)
     return;
 
-  details.m_airportIata = ft.GetMetadata(feature::Metadata::FMD_AIRPORT_IATA);
-  details.m_brand = ft.GetMetadata(feature::Metadata::FMD_BRAND);
+  std::string_view airportIata = ft.GetMetadata(feature::Metadata::FMD_AIRPORT_IATA);
+
+  std::string brand {ft.GetMetadata(feature::Metadata::FMD_BRAND)};
+  if (!brand.empty())
+    brand = platform::GetLocalizedBrandName(brand);
+
+  if (name == brand)
+    brand.clear();
 
   /// @todo Avoid temporary string when OpeningHours (boost::spirit) will allow string_view.
   std::string const openHours(ft.GetMetadata(feature::Metadata::FMD_OPEN_HOURS));
@@ -284,17 +286,47 @@ void FillDetails(FeatureType & ft, Result::Details & details)
     }
   }
 
-  details.m_isHotel = ftypes::IsHotelChecker::Instance()(ft);
-  if (details.m_isHotel && strings::to_uint(ft.GetMetadata(feature::Metadata::FMD_STARS), details.m_stars))
-    details.m_stars = std::min(details.m_stars, osm::MapObject::kMaxStarsCount);
-  else
-    details.m_stars = 0;
+  feature::TypesHolder const typesHolder(ft);
 
-  auto const cuisines = feature::GetLocalizedCuisines(feature::TypesHolder(ft));
-  details.m_cuisine = strings::JoinStrings(cuisines, osm::MapObject::kFieldsSeparator);
+  std::string stars;
+  uint8_t starsCount = 0;
+  bool const isHotel = ftypes::IsHotelChecker::Instance()(typesHolder);
+  if (isHotel && strings::to_uint(ft.GetMetadata(feature::Metadata::FMD_STARS), starsCount))
+    stars = feature::FormatStars(starsCount);
+
+  auto const cuisines = feature::GetLocalizedCuisines(typesHolder);
+  auto const cuisine = strings::JoinStrings(cuisines, feature::kFieldsSeparator);
+
+  auto const recycling = strings::JoinStrings(feature::GetLocalizedRecyclingTypes(typesHolder), feature::kFieldsSeparator);
 
   auto const roadShields = ftypes::GetRoadShieldsNames(ft);
-  details.m_roadShields = strings::JoinStrings(roadShields, osm::MapObject::kFieldsSeparator);
+  auto const roadShield = strings::JoinStrings(roadShields, feature::kFieldsSeparator);
+
+  auto const fee = feature::GetLocalizedFeeType(typesHolder);
+
+  auto const elevation = feature::FormatElevation(ft.GetMetadata(feature::Metadata::FMD_ELE));
+
+  std::string description;
+
+  auto const append = [&description](std::string_view sv)
+  {
+    if (sv.empty())
+      return;
+    if (!description.empty())
+      description += feature::kFieldsSeparator;
+    description += sv;
+  };
+
+  append(stars);
+  append(airportIata);
+  append(roadShield);
+  append(brand);
+  append(elevation);
+  append(cuisine);
+  append(recycling);
+  append(fee);
+
+  details.m_description = std::move(description);
 
   details.m_isInitialized = true;
 }

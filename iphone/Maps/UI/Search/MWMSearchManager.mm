@@ -20,6 +20,8 @@ using Observer = id<MWMSearchManagerObserver>;
 using Observers = NSHashTable<Observer>;
 }  // namespace
 
+const CGFloat kWidthForiPad = 320;
+
 @interface MWMMapViewControlsManager ()
 
 @property(nonatomic) MWMSearchManager *searchManager;
@@ -52,7 +54,6 @@ using Observers = NSHashTable<Observer>;
 @property(nonatomic) MWMNoMapsViewController *noMapsController;
 
 @property(nonatomic) Observers *observers;
-@property(nonatomic) NSDateFormatter *dateFormatter;
 
 @end
 
@@ -68,8 +69,6 @@ using Observers = NSHashTable<Observer>;
     self.state = MWMSearchManagerStateHidden;
     [MWMSearch addObserver:self];
     _observers = [Observers weakObjectsHashTable];
-    _dateFormatter = [[NSDateFormatter alloc] init];
-    _dateFormatter.dateFormat = @"yyyy-MM-dd";
   }
   return self;
 }
@@ -84,6 +83,11 @@ using Observers = NSHashTable<Observer>;
     self.state = MWMSearchManagerStateDefault;
   self.searchTextField.text = @"";
   [MWMSearch clear];
+}
+
+- (void)closeSearch {
+  [self.searchTextField endEditing:YES];
+  [self endSearch];
 }
 
 #pragma mark - Actions
@@ -193,7 +197,7 @@ using Observers = NSHashTable<Observer>;
 
 - (void)changeToHiddenState {
   self.routingTooltipSearch = MWMSearchManagerRoutingTooltipSearchNone;
-  [self endSearch];
+  [self closeSearch];
 
   MWMMapViewControlsManager *controlsManager = self.controlsManager;
   auto const navigationManagerState = [MWMNavigationDashboardManager sharedManager].state;
@@ -209,7 +213,7 @@ using Observers = NSHashTable<Observer>;
   [self.navigationController popToRootViewControllerAnimated:NO];
 
   self.searchBarView.state = SearchBarStateReady;
-  GetFramework().DeactivateMapSelection(true);
+  GetFramework().DeactivateMapSelection();
   [self animateConstraints:^{
     self.contentViewTopHidden.priority = UILayoutPriorityDefaultLow;
     self.contentViewBottomHidden.priority = UILayoutPriorityDefaultLow;
@@ -230,7 +234,7 @@ using Observers = NSHashTable<Observer>;
   [self.navigationController popToRootViewControllerAnimated:NO];
 
   self.searchBarView.state = SearchBarStateReady;
-  GetFramework().DeactivateMapSelection(true);
+  GetFramework().DeactivateMapSelection();
   [self updateTableSearchActionBar];
   auto const navigationManagerState = [MWMNavigationDashboardManager sharedManager].state;
   if (navigationManagerState == MWMNavigationDashboardStateHidden) {
@@ -258,7 +262,7 @@ using Observers = NSHashTable<Observer>;
   auto const navigationManagerState = [MWMNavigationDashboardManager sharedManager].state;
   [self viewHidden:navigationManagerState != MWMNavigationDashboardStateHidden];
   self.controlsManager.menuState = MWMBottomMenuStateHidden;
-  GetFramework().DeactivateMapSelection(true);
+  GetFramework().DeactivateMapSelection();
   [MWMSearch setSearchOnMap:YES];
   [self.tableViewController reloadData];
 
@@ -471,13 +475,23 @@ using Observers = NSHashTable<Observer>;
     [parentView addSubview:contentView];
     [parentView addSubview:actionBarView];
     [self layoutTopViews];
+    // Set Search controller default hidden state for iPad before it will be shown.
+    if (IPAD) {
+      self.searchViewContainerLeadingConstraint.constant = -kWidthForiPad;
+      [parentView.superview layoutIfNeeded];
+    }
   }
   [UIView animateWithDuration:kDefaultAnimationDuration
     animations:^{
-      CGFloat const alpha = hidden ? 0 : 1;
-      contentView.alpha = alpha;
-      actionBarView.alpha = alpha;
-      searchBarView.alpha = alpha;
+      if (IPAD) {
+        self.searchViewContainerLeadingConstraint.constant = hidden ? -kWidthForiPad : 0;
+        [parentView.superview layoutIfNeeded];
+      } else {
+        CGFloat const alpha = hidden ? 0 : 1;
+        contentView.alpha = alpha;
+        actionBarView.alpha = alpha;
+        searchBarView.alpha = alpha;
+      }
     }
     completion:^(BOOL finished) {
       if (!hidden)
@@ -508,6 +522,9 @@ using Observers = NSHashTable<Observer>;
 }
 - (UIView *)searchViewContainer {
   return [MapViewController sharedController].searchViewContainer;
+}
+- (NSLayoutConstraint *)searchViewContainerLeadingConstraint {
+  return [MapViewController sharedController].searchViewContainerLeadingConstraint;
 }
 - (UIView *)actionBarContainer {
   return [MapViewController sharedController].controlsView;

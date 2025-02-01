@@ -1,25 +1,16 @@
 #pragma once
 
-#include "coding/url.hpp"
-
 #include "geometry/point2d.hpp"
-#include "geometry/rect2d.hpp"
 #include "geometry/latlon.hpp"
 
 #include <string>
 #include <vector>
 
-class ApiMarkPoint;
-class BookmarkManager;
-
-namespace url
-{
-class Url;
-}
+class Framework;
 
 namespace url_scheme
 {
-struct ApiPoint
+struct MapPoint
 {
   double m_lat;
   double m_lon;
@@ -43,6 +34,18 @@ struct SearchRequest
   bool m_isSearchOnMap = false;
 };
 
+struct InAppFeatureHighlightRequest
+{
+  enum class InAppFeatureType
+  {
+    None = 0,
+    TrackRecorder = 1,
+    iCloud = 2,
+  };
+
+  InAppFeatureType m_feature = InAppFeatureType::None;
+};
+
 /// Handles [mapswithme|mwm|mapsme]://map|route|search?params - everything related to displaying info on a map
 class ParsedMapApi
 {
@@ -54,20 +57,16 @@ public:
     Route = 2,
     Search = 3,
     Crosshair = 4,
-  };
-
-  struct ParsingResult
-  {
-    UrlType m_type = UrlType::Incorrect;
-    bool m_isSuccess = false;
+    OAuth2 = 5,
+    Menu = 6,
+    Settings = 7
   };
 
   ParsedMapApi() = default;
+  explicit ParsedMapApi(std::string const & url) { SetUrlAndParse(url); }
 
-  void SetBookmarkManager(BookmarkManager * manager);
-
-  ParsingResult SetUrlAndParse(std::string const & url);
-  bool IsValid() const { return m_isValid; }
+  UrlType SetUrlAndParse(std::string const & url);
+  UrlType GetRequestType() const { return m_requestType; };
   std::string const & GetGlobalBackUrl() const { return m_globalBackUrl; }
   std::string const & GetAppName() const { return m_appName; }
   ms::LatLon GetCenterLatLon() const { return m_centerLatLon; }
@@ -75,43 +74,77 @@ public:
   void Reset();
   bool GoBackOnBalloonClick() const { return m_goBackOnBalloonClick; }
 
-  /// @name Used in settings map viewport after invoking API.
-  bool GetViewportParams(m2::PointD & center, double & scale) const;
+  void ExecuteMapApiRequest(Framework & fm) const;
 
-  ApiMarkPoint const * GetSinglePoint() const;
-  std::vector<RoutePoint> const & GetRoutePoints() const { return m_routePoints; }
-  std::string const & GetRoutingType() const { return m_routingType; }
-  SearchRequest const & GetSearchRequest() const { return m_searchRequest; }
+  // Unit test only.
+  std::vector<MapPoint> const & GetMapPoints() const
+  {
+    ASSERT_EQUAL(m_requestType, UrlType::Map, ("Expected Map API"));
+    return m_mapPoints;
+  }
+
+  // Unit test only.
+  double GetZoomLevel() const
+  {
+    ASSERT_EQUAL(m_requestType, UrlType::Map, ("Expected Map API"));
+    return m_zoomLevel;
+  }
+
+  std::vector<RoutePoint> const & GetRoutePoints() const
+  {
+    ASSERT_EQUAL(m_requestType, UrlType::Route, ("Expected Route API"));
+    return m_routePoints;
+  }
+
+  std::string const & GetRoutingType() const
+  {
+    ASSERT_EQUAL(m_requestType, UrlType::Route, ("Expected Route API"));
+    return m_routingType;
+  }
+
+  SearchRequest const & GetSearchRequest() const
+  {
+    ASSERT_EQUAL(m_requestType, UrlType::Search, ("Expected Search API"));
+    return m_searchRequest;
+  }
+
+  std::string const & GetOAuth2Code() const
+  {
+    ASSERT_EQUAL(m_requestType, UrlType::OAuth2, ("Expected OAuth2 API"));
+    return m_oauth2code;
+  }
+
+  InAppFeatureHighlightRequest const & GetInAppFeatureHighlightRequest() const
+  {
+    ASSERT_EQUAL(m_requestType, UrlType::Menu, ("Expected Menu API"));
+    ASSERT_EQUAL(m_requestType, UrlType::Settings, ("Expected Settings API"));
+    return m_inAppFeatureHighlightRequest;
+  }
 
 private:
-  /// Returns true when all statements are true:
-  ///  - url parsed correctly;
-  ///  - all mandatory parameters for url type |type| are provided;
-  ///  - the order of params is correct (for UrlType::Map)
-  bool Parse(url::Url const & url, UrlType type);
-
   void ParseMapParam(std::string const & key, std::string const & value,
-                     std::vector<ApiPoint> & points, bool & correctOrder);
+                     bool & correctOrder);
   void ParseRouteParam(std::string const & key, std::string const & value,
-                       std::vector<std::string> & pattern);
+                       std::vector<std::string_view> & pattern);
   void ParseSearchParam(std::string const & key, std::string const & value);
+  void ParseInAppFeatureHighlightParam(std::string const & key, std::string const & value);
   void ParseCommonParam(std::string const & key, std::string const & value);
 
-  BookmarkManager * m_bmManager = nullptr;
+  UrlType m_requestType;
+  std::vector<MapPoint> m_mapPoints;
   std::vector<RoutePoint> m_routePoints;
   SearchRequest m_searchRequest;
+  InAppFeatureHighlightRequest m_inAppFeatureHighlightRequest;
   std::string m_globalBackUrl;
   std::string m_appName;
-  // TODO: om://search? api needs to distinguish if a (search center) point was passed or not.
-  // Now Android and iOS clients check if either lat or lon is equal to zero in the "not initialized" case.
-  ms::LatLon m_centerLatLon = ms::LatLon::Zero();
+  std::string m_oauth2code;
+  ms::LatLon m_centerLatLon = ms::LatLon::Invalid();
   std::string m_routingType;
   int m_version = 0;
   /// Zoom level in OSM format (e.g. from 1.0 to 20.0)
   /// Taken into an account when calculating viewport rect, but only if points count is == 1
   double m_zoomLevel = 0.0;
   bool m_goBackOnBalloonClick = false;
-  bool m_isValid = false;
 };
 
 std::string DebugPrint(ParsedMapApi::UrlType type);

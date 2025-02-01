@@ -2,6 +2,7 @@
 
 #include "search/search_quality/helpers.hpp"
 
+#include "search/categories_cache.hpp"
 #include "search/engine.hpp"
 #include "search/locality_finder.hpp"
 #include "search/reverse_geocoder.hpp"
@@ -14,7 +15,6 @@
 #include "indexer/classificator_loader.hpp"
 #include "indexer/data_source.hpp"
 #include "indexer/feature.hpp"
-#include "indexer/feature_processor.hpp"
 #include "indexer/ftypes_matcher.hpp"
 #include "indexer/map_object.hpp"
 #include "indexer/map_style_reader.hpp"
@@ -227,7 +227,7 @@ public:
     string name(f.GetName(StringUtf8Multilang::kDefaultCode));
     if (name.empty())
     {
-      std::tie(name, std::ignore) = f.GetPreferredNames();
+      name = f.GetReadableName();
       if (name.empty())
         name = metaOperator;
     }
@@ -269,7 +269,7 @@ public:
     string const wikipedia(meta.Get(feature::Metadata::FMD_WIKIPEDIA));
     string const wikimedia_commons(meta.Get(feature::Metadata::FMD_WIKIMEDIA_COMMONS));
     string const floor(meta.Get(feature::Metadata::FMD_LEVEL));
-    string const fee = strings::EndsWith(category, "-fee") ? "yes" : "";
+    string const fee = category.ends_with("-fee") ? "yes" : "";
     string const atm = HasAtm(f) ? "yes" : "";
 
     vector<string> columns = {
@@ -365,7 +365,7 @@ int main(int argc, char ** argv)
   {
     if (mwmInfo->GetType() != MwmInfo::COUNTRY)
       continue;
-    if (argc > 3 && !strings::StartsWith(mwmInfo->GetCountryName() + DATA_FILE_EXTENSION, argv[3]))
+    if (argc > 3 && !(mwmInfo->GetCountryName() + DATA_FILE_EXTENSION).starts_with(argv[3]))
       continue;
     LOG(LINFO, ("Processing", mwmInfo->GetCountryName()));
     string osmToFeatureFile = base::JoinPath(

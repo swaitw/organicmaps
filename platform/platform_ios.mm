@@ -64,8 +64,9 @@ Platform::Platform()
   UIDevice * device = UIDevice.currentDevice;
   device.batteryMonitoringEnabled = YES;
 
-  NSLog(@"Device: %@, SystemName: %@, SystemVersion: %@", device.model, device.systemName,
-        device.systemVersion);
+  LOG(LINFO, ("Device:", device.model.UTF8String, "SystemName:",
+              device.systemName.UTF8String, "SystemVersion:",
+              device.systemVersion.UTF8String));
 }
 
 //static
@@ -161,6 +162,7 @@ std::string Platform::DeviceModel() const
 
 std::string Platform::Version() const
 {
+  /// @note Do not change version format, it is parsed on server side.
   NSBundle * mainBundle = [NSBundle mainBundle];
   NSString * version = [mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
   NSString * build = [mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
@@ -255,6 +257,15 @@ time_t Platform::GetFileCreationTime(std::string const & path)
   struct stat st;
   if (0 == stat(path.c_str(), &st))
     return st.st_birthtimespec.tv_sec;
+  return 0;
+}
+
+// static
+time_t Platform::GetFileModificationTime(std::string const & path)
+{
+  struct stat st;
+  if (0 == stat(path.c_str(), &st))
+    return st.st_mtimespec.tv_sec;
   return 0;
 }
 

@@ -1,39 +1,16 @@
-# Flags for all
-set(OMIM_WARNING_FLAGS
-  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
-  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wextra>
-  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-unused-parameter>
-  $<$<CXX_COMPILER_ID:AppleClang>:-Wno-deprecated-declarations>  # boost warnings
-)
-set(OMIM_INCLUDE_DIRS "${OMIM_ROOT}/3party/boost")
-
-# Function for setting target platform:
-function(omim_set_platform_var PLATFORM_VAR pattern)
-  set(${PLATFORM_VAR} FALSE PARENT_SCOPE)
-
-  if (NOT PLATFORM)
-    if (${ARGN})
-      list(GET ARGN 0 default_case)
-      if (${default_case})
-        set(${PLATFORM_VAR} TRUE PARENT_SCOPE)
-        message("Setting ${PLATFORM_VAR} to true")
-      endif()
-    endif()
-  else()
-    message("Platform: ${PLATFORM}")
-    if (${PLATFORM} MATCHES ${pattern})
-      set(${PLATFORM_VAR} TRUE PARENT_SCOPE)
-    endif()
-  endif()
-endfunction()
+include(OmimConfig)
 
 # Functions for using in subdirectories
 function(omim_add_executable executable)
   add_executable(${executable} ${ARGN})
 
+  if (PLATFORM_WIN)
+    target_sources(${executable} PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/windows/OrganicMaps.manifest")
+  endif()
+
   # Enable warnings for all our binaries.
   target_compile_options(${executable} PRIVATE ${OMIM_WARNING_FLAGS})
-  target_include_directories(${executable} PRIVATE ${OMIM_INCLUDE_DIRS})
+  target_include_directories(${executable} SYSTEM PRIVATE ${3PARTY_INCLUDE_DIRS})
   if (USE_ASAN)
     target_link_libraries(${executable}
       -fsanitize=address
@@ -79,54 +56,13 @@ function(omim_add_library library)
 
   # Enable warnings for all our libraries.
   target_compile_options(${library} PRIVATE ${OMIM_WARNING_FLAGS})
-  target_include_directories(${library} PRIVATE ${OMIM_INCLUDE_DIRS})
+  target_include_directories(${library} SYSTEM PRIVATE ${3PARTY_INCLUDE_DIRS})
   if (USE_PPROF AND PLATFORM_MAC)
     find_path(PPROF_INCLUDE_DIR NAMES gperftools/profiler.h)
     target_include_directories(${library} SYSTEM PUBLIC ${PPROF_INCLUDE_DIR})
   endif()
   if (USE_PCH)
     add_precompiled_headers_to_target(${library} ${OMIM_PCH_TARGET_NAME})
-  endif()
-endfunction()
-
-function(omim_add_test_impl disable_platform_init executable)
-  if (NOT SKIP_TESTS)
-    omim_add_executable(${executable}
-      ${ARGN}
-      ${OMIM_ROOT}/testing/testingmain.cpp
-    )
-    target_compile_options(${executable} PRIVATE ${OMIM_WARNING_FLAGS})
-    target_include_directories(${executable} PRIVATE ${OMIM_INCLUDE_DIRS})
-    if(disable_platform_init)
-      target_compile_definitions(${PROJECT_NAME} PRIVATE OMIM_UNIT_TEST_DISABLE_PLATFORM_INIT)
-    else()
-      target_link_libraries(${executable} platform)
-    endif()
-    # testingmain.cpp uses base::HighResTimer::ElapsedNano
-    target_link_libraries(${executable} base)
-  endif()
-endfunction()
-
-function(omim_add_test executable)
-  omim_add_test_impl(NO ${executable} ${ARGN})
-endfunction()
-
-function(omim_add_test_with_qt_event_loop executable)
-  omim_add_test_impl(NO ${executable} ${ARGN})
-  target_compile_definitions(${executable} PRIVATE OMIM_UNIT_TEST_WITH_QT_EVENT_LOOP)
-  target_link_libraries(${executable} Qt5::Widgets)
-endfunction()
-
-function(omim_add_test_no_platform_init executable)
-  omim_add_test_impl(YES ${executable} ${ARGN})
-endfunction()
-
-
-function(omim_add_test_subdirectory subdir)
-  if (NOT SKIP_TESTS)
-    add_subdirectory(${subdir})
-  else()
-    message("SKIP_TESTS: Skipping subdirectory ${subdir}")
   endif()
 endfunction()
 
@@ -241,8 +177,8 @@ function(add_precompiled_headers header pch_target_name)
   export_directory_flags("${pch_flags_file}")
   set(compiler_flags "@${pch_flags_file}")
 
-  # CMAKE_CXX_STANDARD 17 flags:
-  set(c_standard_flags "-std=c++17")
+  # CMAKE_CXX_STANDARD 20 flags:
+  set(c_standard_flags "-std=c++20")
   get_filename_component(pch_file_name ${header} NAME)
 
   add_pic_pch_target(${header} ${pch_target_name} ${pch_file_name} lib "-fPIC")

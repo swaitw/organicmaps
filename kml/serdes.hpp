@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kml/types.hpp"
+#include "kml/serdes_common.hpp"
 
 #include "coding/parse_xml.hpp"
 #include "coding/reader.hpp"
@@ -19,17 +20,6 @@ class KmlWriter
 public:
   DECLARE_EXCEPTION(WriteKmlException, RootException);
 
-  class WriterWrapper
-  {
-  public:
-    explicit WriterWrapper(Writer & writer)
-      : m_writer(writer)
-    {}
-    WriterWrapper & operator<<(std::string const & str);
-  private:
-    Writer & m_writer;
-  };
-
   explicit KmlWriter(Writer & writer)
     : m_writer(writer)
   {}
@@ -37,7 +27,7 @@ public:
   void Write(FileData const & fileData);
 
 private:
-  WriterWrapper m_writer;
+  Writer & m_writer;
 };
 
 class SerializerKml
@@ -67,13 +57,13 @@ public:
 
   /// @name Parser callback functions.
   /// @{
-  bool Push(std::string const & name);
-  void AddAttr(std::string const & attr, std::string const & value);
-  void Pop(std::string const & tag);
-  void CharData(std::string value);
+  bool Push(std::string name);
+  void AddAttr(std::string attr, std::string value);
+  void Pop(std::string_view tag);
+  void CharData(std::string & value);
   /// @}
 
-  bool IsValidAttribute(std::string_view const & type, std::string const & value,
+  bool IsValidAttribute(std::string_view type, std::string const & value,
                         std::string const & attrInLowerCase) const;
 
   static kml::TrackLayer GetDefaultTrackLayer();
@@ -81,6 +71,7 @@ public:
 private:
   std::string const & GetTagFromEnd(size_t n) const;
   bool IsProcessTrackTag() const;
+  bool IsProcessTrackCoord() const;
 
   enum GeometryType
   {
@@ -106,7 +97,11 @@ private:
 
   std::vector<std::string> m_tags;
   GeometryType m_geometryType;
+
   MultiGeometry m_geometry;
+  std::map<size_t, std::set<size_t>> m_skipTimes;
+  size_t m_lastTrackPointsCount;
+
   uint32_t m_color;
 
   std::string m_styleId;

@@ -4,14 +4,11 @@
 #include "drape_frontend/gui/skin.hpp"
 #include "drape_frontend/user_event_stream.hpp"
 
-#include "search/reverse_geocoder.hpp"
-
 #include "qt/qt_common/qtoglcontextfactory.hpp"
 
-#include "indexer/feature.hpp"
+#include <QOpenGLWidget>
 
 #include <QtCore/QTimer>
-#include <QtWidgets/QOpenGLWidget>
 
 #include <memory>
 
@@ -23,9 +20,7 @@ class QOpenGLShaderProgram;
 class QOpenGLVertexArrayObject;
 class QOpenGLBuffer;
 
-namespace qt
-{
-namespace common
+namespace qt::common
 {
 class ScaleSlider;
 
@@ -40,6 +35,7 @@ public:
   void BindHotkeys(QWidget & parent);
   void BindSlider(ScaleSlider & slider);
   void CreateEngine();
+  void grabGestures(const QList<Qt::GestureType> &gestures);
 
 signals:
   void OnContextMenuRequested(QPoint const & p);
@@ -49,6 +45,15 @@ public slots:
   void ScaleMinus();
   void ScalePlusLight();
   void ScaleMinusLight();
+  void MoveRight();
+  void MoveRightSmooth();
+  void MoveLeft();
+  void MoveLeftSmooth();
+  void MoveUp();
+  void MoveUpSmooth();
+  void MoveDown();
+  void MoveDownSmooth();
+
 
   void ScaleChanged(int action);
   void SliderPressed();
@@ -69,8 +74,8 @@ protected:
 
   int L2D(int px) const { return px * m_ratio; }
   m2::PointD GetDevicePoint(QMouseEvent * e) const;
-  df::Touch GetTouch(QMouseEvent * e) const;
-  df::TouchEvent GetTouchEvent(QMouseEvent * e, df::TouchEvent::ETouchType type) const;
+  df::Touch GetDfTouchFromQMouseEvent(QMouseEvent * e) const;
+  df::TouchEvent GetDfTouchEventFromQMouseEvent(QMouseEvent * e, df::TouchEvent::ETouchType type) const;
   df::Touch GetSymmetrical(df::Touch const & touch) const;
 
   void UpdateScaleControl();
@@ -83,6 +88,7 @@ protected:
   void initializeGL() override;
   void paintGL() override;
   void resizeGL(int width, int height) override;
+
 
   void mouseDoubleClickEvent(QMouseEvent * e) override;
   void mousePressEvent(QMouseEvent * e) override;
@@ -107,7 +113,4 @@ protected:
   std::unique_ptr<QOpenGLBuffer> m_vbo;
 };
 
-search::ReverseGeocoder::Address GetFeatureAddressInfo(Framework const & framework,
-                                                       FeatureType & ft);
-}  // namespace common
-}  // namespace qt
+} // namespace qt::common

@@ -1,6 +1,6 @@
 project(drape)
 
-set(SRC
+set(DRAPE_TESTABLE_SRC
   attribute_buffer_mutator.cpp
   attribute_buffer_mutator.hpp
   attribute_provider.cpp
@@ -9,13 +9,10 @@ set(SRC
   batcher.hpp
   batcher_helpers.cpp
   batcher_helpers.hpp
-  bidi.cpp
-  bidi.hpp
   binding_info.cpp
   binding_info.hpp
   buffer_base.cpp
   buffer_base.hpp
-  color.cpp
   color.hpp
   constants.hpp
   cpu_buffer.cpp
@@ -28,6 +25,7 @@ set(SRC
   drape_global.hpp
   drape_routine.hpp
   dynamic_texture.hpp
+  font_constants.hpp
   font_texture.cpp
   font_texture.hpp
   framebuffer.cpp
@@ -38,13 +36,11 @@ set(SRC
   gl_gpu_program.hpp
   gl_extensions_list.cpp
   gl_extensions_list.hpp
-  gl_functions.cpp
   gl_functions.hpp
   gl_includes.hpp
   glsl_func.hpp
   glsl_types.hpp
-  glyph_generator.cpp
-  glyph_generator.hpp
+  glyph.hpp
   glyph_manager.cpp
   glyph_manager.hpp
   gpu_buffer.cpp
@@ -86,6 +82,8 @@ set(SRC
   support_manager.hpp
   symbols_texture.cpp
   symbols_texture.hpp
+  harfbuzz_shaping.cpp
+  harfbuzz_shaping.hpp
   texture.cpp
   texture.hpp
   texture_manager.cpp
@@ -109,9 +107,10 @@ set(SRC
   viewport.cpp
   viewport.hpp
   visual_scale.hpp
-  # TODO: Why Vulkan is added on all platforms, even on iOS and Mac?
   vulkan/vulkan_base_context.cpp
   vulkan/vulkan_base_context.hpp
+  vulkan/vulkan_context_factory.cpp
+  vulkan/vulkan_context_factory.hpp
   vulkan/vulkan_gpu_buffer_impl.cpp
   vulkan/vulkan_gpu_buffer_impl.hpp
   vulkan/vulkan_gpu_program.hpp
@@ -135,10 +134,8 @@ set(SRC
   vulkan/vulkan_vertex_array_buffer_impl.cpp
 )
 
-if (PLATFORM_IPHONE)
-  append(SRC
-    hw_texture_ios.hpp
-    hw_texture_ios.mm
+if (PLATFORM_IPHONE OR PLATFORM_MAC)
+  append(DRAPE_TESTABLE_SRC
     metal/metal_base_context.hpp
     metal/metal_base_context.mm
     metal/metal_cleaner.hpp
@@ -155,6 +152,15 @@ if (PLATFORM_IPHONE)
   )
 endif()
 
+set(SRC ${DRAPE_TESTABLE_SRC} gl_functions.cpp)
+
+if (PLATFORM_IPHONE)
+  append(SRC
+    hw_texture_ios.hpp
+    hw_texture_ios.mm
+  )
+endif()
+
 omim_add_library(${PROJECT_NAME} ${SRC})
 
 # Do not include glm's CMakeLists.txt, because it's outdated and not necessary.
@@ -164,7 +170,11 @@ if (PLATFORM_LINUX)
   find_package(OpenGL)
 endif()
 
-target_link_libraries(${PROJECT_NAME}
+if (PLATFORM_MAC)
+  set_target_properties(${PROJECT_NAME} PROPERTIES XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES)
+endif()
+
+set(DRAPE_LINK_LIBRARIES
   indexer
   platform
   geometry
@@ -173,11 +183,16 @@ target_link_libraries(${PROJECT_NAME}
   Freetype::Freetype
   vulkan_wrapper
   stb_image
-  sdf_image
+  harfbuzz::harfbuzz
   ICU::i18n
-  expat
+  expat::expat
   $<$<BOOL:${PLATFORM_MAC}>:-framework\ OpenGL>
+  $<$<BOOL:${PLATFORM_MAC}>:-framework\ Metal>
   $<$<BOOL:${PLATFORM_LINUX}>:OpenGL::GL>
 )
 
+target_link_libraries(${PROJECT_NAME} ${DRAPE_LINK_LIBRARIES})
+
 omim_add_test_subdirectory(drape_tests)
+
+omim_add_tool_subdirectory(fonts_tool)

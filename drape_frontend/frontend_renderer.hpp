@@ -68,6 +68,12 @@ struct TapInfo
   static m2::AnyRectD GetPreciseTapRect(m2::PointD const & mercator, double eps);
 };
 
+/*
+ * A FrontendRenderer holds several RenderLayers, one per each df::DepthLayer,
+ * a rendering order of the layers is set in RenderScene().
+ * Each RenderLayer contains several RenderGroups, one per each tile and RenderState.
+ * Each RenderGroup contains several RenderBuckets holding VertexArrayBuffers and optional OverlayHandles.
+ */
 class FrontendRenderer : public BaseRenderer,
                          public MyPositionController::Listener,
                          public UserEventStream::Listener
@@ -77,7 +83,6 @@ public:
   using GraphicsReadyHandler = std::function<void()>;
   using TapEventInfoHandler = std::function<void(TapInfo const &)>;
   using UserPositionChangedHandler = std::function<void(m2::PointD const & pt, bool hasPosition)>;
-  using UserPositionPendingTimeoutHandler = std::function<void()>;
 
   struct Params : BaseRenderer::Params
   {
@@ -86,25 +91,25 @@ public:
            MyPositionController::Params && myPositionParams, dp::Viewport viewport,
            ModelViewChangedHandler && modelViewChangedHandler, TapEventInfoHandler && tapEventHandler,
            UserPositionChangedHandler && positionChangedHandler,
-           UserPositionPendingTimeoutHandler && userPositionPendingTimeoutHandler,
            ref_ptr<RequestedTiles> requestedTiles,
            OverlaysShowStatsCallback && overlaysShowStatsCallback,
            bool allow3dBuildings, bool trafficEnabled, bool blockTapEvents,
            std::vector<PostprocessRenderer::Effect> && enabledEffects,
-           OnGraphicsContextInitialized const & onGraphicsContextInitialized)
+           OnGraphicsContextInitialized const & onGraphicsContextInitialized,
+           dp::RenderInjectionHandler&& renderInjectionHandler)
       : BaseRenderer::Params(apiVersion, commutator, factory, texMng, onGraphicsContextInitialized)
       , m_myPositionParams(std::move(myPositionParams))
       , m_viewport(viewport)
       , m_modelViewChangedHandler(std::move(modelViewChangedHandler))
       , m_tapEventHandler(std::move(tapEventHandler))
       , m_positionChangedHandler(std::move(positionChangedHandler))
-      , m_userPositionPendingTimeoutHandler(std::move(userPositionPendingTimeoutHandler))
       , m_requestedTiles(requestedTiles)
       , m_overlaysShowStatsCallback(std::move(overlaysShowStatsCallback))
       , m_allow3dBuildings(allow3dBuildings)
       , m_trafficEnabled(trafficEnabled)
       , m_blockTapEvents(blockTapEvents)
       , m_enabledEffects(std::move(enabledEffects))
+      , m_renderInjectionHandler(std::move(renderInjectionHandler))
     {}
 
     MyPositionController::Params m_myPositionParams;
@@ -112,13 +117,13 @@ public:
     ModelViewChangedHandler m_modelViewChangedHandler;
     TapEventInfoHandler m_tapEventHandler;
     UserPositionChangedHandler m_positionChangedHandler;
-    UserPositionPendingTimeoutHandler m_userPositionPendingTimeoutHandler;
     ref_ptr<RequestedTiles> m_requestedTiles;
     OverlaysShowStatsCallback m_overlaysShowStatsCallback;
     bool m_allow3dBuildings;
     bool m_trafficEnabled;
     bool m_blockTapEvents;
     std::vector<PostprocessRenderer::Effect> m_enabledEffects;
+    dp::RenderInjectionHandler m_renderInjectionHandler;
   };
 
   explicit FrontendRenderer(Params && params);
@@ -130,7 +135,6 @@ public:
 
   // MyPositionController::Listener
   void PositionChanged(m2::PointD const & position, bool hasPosition) override;
-  void PositionPendingTimeout() override;
   void ChangeModelView(m2::PointD const & center, int zoomLevel,
                        TAnimationCreator const & parallelAnimCreator) override;
   void ChangeModelView(double azimuth, TAnimationCreator const & parallelAnimCreator) override;
@@ -182,7 +186,6 @@ private:
   void PreRender3dLayer(ScreenBase const & modelView);
   void Render3dLayer(ScreenBase const & modelView);
   void RenderOverlayLayer(ScreenBase const & modelView);
-  void RenderNavigationOverlayLayer(ScreenBase const & modelView);
   void RenderUserMarksLayer(ScreenBase const & modelView, DepthLayer layerId);
   void RenderNonDisplaceableUserMarksLayer(ScreenBase const & modelView, DepthLayer layerId);
   void RenderTransitSchemeLayer(ScreenBase const & modelView);
@@ -194,14 +197,15 @@ private:
   bool HasTransitRouteData() const;
   bool HasRouteData() const;
 
-  ScreenBase const & ProcessEvents(bool & modelViewChanged, bool & viewportChanged);
+  ScreenBase const & ProcessEvents(bool & modelViewChanged, bool & viewportChanged, 
+                                   bool & needActiveFrame);
   void PrepareScene(ScreenBase const & modelView);
   void UpdateScene(ScreenBase const & modelView);
   void BuildOverlayTree(ScreenBase const & modelView);
 
   void EmitModelViewChanged(ScreenBase const & modelView) const;
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#if defined(OMIM_OS_DESKTOP)
   void EmitGraphicsReady();
 #endif
 
@@ -222,6 +226,7 @@ private:
 
   void OnScaleStarted() override;
   void OnRotated() override;
+  void OnScrolled(m2::PointD const & distance) override;
   void CorrectScalePoint(m2::PointD & pt) const override;
   void CorrectScalePoint(m2::PointD & pt1, m2::PointD & pt2) const override;
   void CorrectGlobalScalePoint(m2::PointD & pt) const override;
@@ -331,12 +336,13 @@ private:
   bool m_choosePositionMode;
   bool m_screenshotMode;
 
+  int8_t m_mapLangIndex;
+
   dp::Viewport m_viewport;
   UserEventStream m_userEventStream;
   ModelViewChangedHandler m_modelViewChangedHandler;
   TapEventInfoHandler m_tapEventInfoHandler;
   UserPositionChangedHandler m_userPositionChangedHandler;
-  UserPositionPendingTimeoutHandler m_userPositionPendingTimeoutHandler;
 
   ScreenBase m_lastReadedModelView;
   TTilesCollection m_notFinishedTiles;
@@ -410,7 +416,7 @@ private:
   bool m_firstLaunchAnimationTriggered = false;
   bool m_firstLaunchAnimationInterrupted = false;
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#if defined(OMIM_OS_DESKTOP)
   GraphicsReadyHandler m_graphicsReadyFn;
 
   enum class GraphicsStage
@@ -427,6 +433,8 @@ private:
   drape_ptr<ScreenQuadRenderer> m_transitBackground;
 
   drape_ptr<DrapeNotifier> m_notifier;
+
+  dp::RenderInjectionHandler m_renderInjectionHandler;
 
   struct FrameData
   {

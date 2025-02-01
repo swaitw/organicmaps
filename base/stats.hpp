@@ -2,12 +2,15 @@
 
 #include "base/logging.hpp"
 
+#include <queue>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace base
 {
+
 template <typename T>
 class NoopStats
 {
@@ -54,7 +57,7 @@ private:
 
 template <class T> class StatsCollector
 {
-  std::vector<std::pair<std::string, base::AverageStats<T>>> m_vec;
+  std::vector<std::pair<std::string, AverageStats<T>>> m_vec;
 
 public:
   explicit StatsCollector(std::initializer_list<std::string> init)
@@ -68,7 +71,55 @@ public:
       LOG_SHORT(LINFO, (e.first, ":", e.second.ToString()));
   }
 
-  base::AverageStats<T> & Get(size_t i) { return m_vec[i].second; }
+  AverageStats<T> & Get(size_t i) { return m_vec[i].second; }
+};
+
+template <class Key> class TopStatsCounter
+{
+  std::unordered_map<Key, size_t> m_data;
+
+public:
+  void Add(Key const & key) { ++m_data[key]; }
+
+  void PrintTop(size_t count) const
+  {
+    ASSERT(count > 0, ());
+
+    using PtrT = std::pair<Key const, size_t> const *;
+    struct GreaterNumber
+    {
+      bool operator() (PtrT l, PtrT r) const { return l->second > r->second; }
+    };
+
+    std::priority_queue<PtrT, std::vector<PtrT>, GreaterNumber> queue;
+
+    for (auto const & p : m_data)
+    {
+      if (queue.size() >= count)
+      {
+        if (queue.top()->second >= p.second)
+          continue;
+        queue.pop();
+      }
+
+      queue.push(&p);
+    }
+
+    std::vector<PtrT> vec;
+    vec.reserve(count);
+
+    while (!queue.empty())
+    {
+      vec.push_back(queue.top());
+      queue.pop();
+    }
+
+    for (auto i = vec.rbegin(); i != vec.rend(); ++i)
+    {
+      PtrT const p = *i;
+      LOG_SHORT(LINFO, (p->first, ":", p->second));
+    }
+  }
 };
 
 }  // namespace base

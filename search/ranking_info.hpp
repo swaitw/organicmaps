@@ -14,6 +14,7 @@ namespace feature { class TypesHolder; }
 
 namespace search
 {
+/// @note The order is important here (less is better)
 enum class PoiType : uint8_t
 {
   // Railway/subway stations, airports.
@@ -24,14 +25,21 @@ enum class PoiType : uint8_t
   Eat,
   // Hotels.
   Hotel,
-  // Shops.
-  Shop,
+  // Shop or Amenity.
+  ShopOrAmenity,
   // Attractions.
   Attraction,
-  // Service types: power lines and substations, barrier-fence, etc.
-  Service,
+  // Car Infra
+  CarInfra,
+
+  // Factor for *pure category* matched result.
+  PureCategory,
+
   // All other POIs.
   General,
+  // Service types: power lines and substations, barrier-fence, etc.
+  Service,
+
   Count
 };
 
@@ -62,11 +70,11 @@ struct RankingInfo : public StoredRankingInfo
     : m_isAltOrOldName(false)
     , m_allTokensUsed(true)
     , m_exactMatch(true)
-    , m_exactCountryOrCapital(true)
     , m_pureCats(false)
     , m_falseCats(false)
     , m_categorialRequest(false)
     , m_hasName(false)
+    , m_nearbyMatch(false)
   {
     m_classifType.street = StreetType::Default;
   }
@@ -75,8 +83,11 @@ struct RankingInfo : public StoredRankingInfo
 
   void ToCSV(std::ostream & os) const;
 
-  // Returns rank calculated by a linear model, bigger is better.
-  double GetLinearModelRank() const;
+  /// @param[in]  viewportMode  True, and distance is not included into the final rank.
+  /// @return Rank calculated by a linear model, bigger is better.
+  double GetLinearModelRank(bool viewportMode = false) const;
+
+  static double GetLinearRankViewportThreshold();
 
   double GetErrorsMadePerToken() const;
 
@@ -101,8 +112,8 @@ struct RankingInfo : public StoredRankingInfo
   // Number of misprints.
   ErrorsMade m_errorsMade;
 
-  // Rank of the feature.
-  uint8_t m_rank = 0;
+  // Rank of the feature. Store uint16_t because of possible 'normalization'.
+  uint16_t m_rank = 0;
 
   // Popularity rank of the feature.
   uint8_t m_popularity = 0;
@@ -120,10 +131,6 @@ struct RankingInfo : public StoredRankingInfo
   // True iff all tokens retrieved from search index were matched without misprints.
   bool m_exactMatch : 1;
 
-  // True iff feature has country or capital type and matches request: full match with all tokens
-  // used and without misprints.
-  bool m_exactCountryOrCapital : 1;
-
   // True if all of the tokens that the feature was matched by
   // correspond to this feature's categories.
   bool m_pureCats : 1;
@@ -138,6 +145,9 @@ struct RankingInfo : public StoredRankingInfo
 
   // True iff the feature has a name.
   bool m_hasName : 1;
+
+  // Nearby match: POI and Complex POI (planning POI and Street/Suburb/City).
+  bool m_nearbyMatch : 1;
 };
 
 PoiType GetPoiType(feature::TypesHolder const & th);

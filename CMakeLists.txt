@@ -1,11 +1,20 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.22.1)
 project(omim C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_C_STANDARD 17)
 # Our code does not rely on gnu extensions.
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_EXTENSIONS OFF)
+
+set(CMAKE_C_VISIBILITY_PRESET hidden)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+
+# Fixes warning ld: warning: ignoring duplicate libraries on Mac and Windows.
+if (POLICY CMP0156)
+  cmake_policy(SET CMP0156 NEW)
+endif()
 
 if (APPLE AND NOT ("${CMAKE_SYSTEM_NAME}" STREQUAL Android))
   # OBJC/OBJCXX are needed to skip m/mm files in Unity builds.
@@ -14,13 +23,17 @@ if (APPLE AND NOT ("${CMAKE_SYSTEM_NAME}" STREQUAL Android))
   set(CMAKE_OBJC_EXTENSIONS OFF)
   set(CMAKE_OBJC_STANDARD 11)
   set(CMAKE_OBJC_FLAGS -fobjc-arc)
+  set(CMAKE_OBJC_VISIBILITY_PRESET hidden)
   enable_language(OBJCXX)
   set(CMAKE_OBJCXX_EXTENSIONS OFF)
-  set(CMAKE_OBJCXX_STANDARD 17)
+  set(CMAKE_OBJCXX_STANDARD 20)
   set(CMAKE_OBJCXX_FLAGS -fobjc-arc)
+  set(CMAKE_OBJCXX_VISIBILITY_PRESET hidden)
 endif()
 
 message(STATUS "Using compiler ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+
+option(COVERAGE_REPORT "Configure for coverage report" OFF)
 
 option(UNITY_DISABLE "Disable unity build" OFF)
 if (NOT UNITY_DISABLE AND NOT DEFINED ENV{UNITY_DISABLE})
@@ -58,32 +71,24 @@ set(OMIM_ROOT ${CMAKE_SOURCE_DIR})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${OMIM_ROOT}/cmake")
 
 include(OmimHelpers)
+include(OmimTesting)
 
-if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-  set(LINUX_DETECTED TRUE)
-endif()
-
-if (CMAKE_SYSTEM_NAME MATCHES "Android")
-  set(ANDROID_DETECTED TRUE)
-  if ((${OS} MATCHES "mac"))
-    set(DARWIN TRUE)
-  endif()
-endif()
-
-
-omim_set_platform_var(PLATFORM_IPHONE "iphone-.*")
-omim_set_platform_var(PLATFORM_ANDROID "android-.*" ${ANDROID_DETECTED})
-omim_set_platform_var(PLATFORM_MAC "macx-.*" ${APPLE})
-omim_set_platform_var(PLATFORM_WIN "win32-.*" ${WIN32})
-omim_set_platform_var(PLATFORM_LINUX "linux-.*" ${LINUX_DETECTED})
-
-if (PLATFORM_LINUX OR PLATFORM_MAC OR PLATFORM_WIN)
-  set(PLATFORM_DESKTOP TRUE)
-else()
+set(PLATFORM_DESKTOP TRUE)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(PLATFORM_LINUX TRUE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  set(PLATFORM_MAC TRUE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  set(PLATFORM_WIN TRUE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Android")
+  set(PLATFORM_ANDROID TRUE)
   set(PLATFORM_DESKTOP FALSE)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  set(PLATFORM_IPHONE TRUE)
+  set(PLATFORM_DESKTOP FALSE)
+else()
+  message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()
-
-# End of setting the target platform
 
 # Sanitizer
 if (PLATFORM_DESKTOP)
@@ -103,14 +108,31 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Global compile options for all configurations.
-add_compile_options(-ffast-math)
+if (MSVC)
+  add_compile_options(/utf-8)
+  add_link_options(/INCREMENTAL:NO)
+else()
+  add_compile_options(-ffast-math)
+endif()
+
+if (PLATFORM_WIN)
+  add_definitions(
+    -DWIN32_LEAN_AND_MEAN
+    -DNOMINMAX
+  )
+endif()
 
 # Built-in CMake configurations: Debug, Release, RelWithDebInfo, MinSizeRel
 if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
-  add_definitions(-DDEBUG -fno-omit-frame-pointer)
+  add_definitions(-DDEBUG)
+  if (NOT MSVC)
+    add_compile_options(-fno-omit-frame-pointer)
+  endif()
 elseif (${CMAKE_BUILD_TYPE} MATCHES "Rel")
   add_definitions(-DRELEASE)
-  add_compile_options(-Ofast)
+  if (NOT MSVC)
+    add_compile_options(-Ofast)  # Also enables -ffast-math
+  endif()
 else()
   message(FATAL_ERROR "Unknown build type: " ${CMAKE_BUILD_TYPE})
 endif()
@@ -127,15 +149,21 @@ if (BUILD_DESIGNER)
   add_definitions(-DBUILD_DESIGNER)
 endif()
 
+option(BUILD_STANDALONE "Build standalone application" OFF)
+if (BUILD_STANDALONE)
+  message(STATUS "Standalone building is enabled")
+  add_definitions(-DBUILD_STANDALONE)
+endif()
+
 option(USE_ASAN "Enable Address Sanitizer" OFF)
 option(USE_TSAN "Enable Thread Sanitizer" OFF)
 option(USE_LIBFUZZER "Enable LibFuzzer" OFF)
 option(PYBINDINGS "Create makefiles for building python bindings" OFF)
-option(SKIP_DESKTOP "Skip building of desktop application" OFF)
-# TODO: Fix mapshot, it doesn't work without our old FreeType hack.
-option(BUILD_MAPSHOT "Build mapshot tool" OFF)
+option(SKIP_QT_GUI "Skip building of Qt GUI" OFF)
 option(USE_PCH "Use precompiled headers" OFF)
 option(NJOBS "Number of parallel processes" OFF)
+option(ENABLE_VULKAN_DIAGNOSTICS "Enable Vulkan diagnostics" OFF)
+option(ENABLE_TRACE "Enable Tracing" OFF)
 
 if (NJOBS)
   message(STATUS "Number of parallel processes: ${NJOBS}")
@@ -145,9 +173,9 @@ if (NJOBS)
   set(CMAKE_JOB_POOL_PRECOMPILE_HEADER custom)
 endif()
 
-# GCC 8.1 is required to support <charconv> header inclusion in base/string_utils.hpp, otherwise 7.0 is sufficient
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.1)
-  message(FATAL_ERROR "Minimum supported g++ version is 8.1 yours is ${CMAKE_CXX_COMPILER_VERSION}")
+# GCC 10.0 is required to support <charconv> header inclusion in base/string_utils.hpp
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10.0)
+  message(FATAL_ERROR "Minimum supported g++ version is 10.0, yours is ${CMAKE_CXX_COMPILER_VERSION}")
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -187,6 +215,16 @@ if (USE_HEAPPROF)
   message(STATUS "Heap Profiler is enabled")
 endif()
 
+if (ENABLE_VULKAN_DIAGNOSTICS)
+  message(WARNING "Vulkan diagnostics are enabled. Be aware of performance impact!")
+  add_definitions(-DENABLE_VULKAN_DIAGNOSTICS)
+endif()
+
+if (ENABLE_TRACE)
+  message(STATUS "Tracing is enabled")
+  add_definitions(-DENABLE_TRACE)
+endif()
+
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Set environment variables
@@ -208,7 +246,12 @@ if (PLATFORM_LINUX OR PLATFORM_ANDROID)
 endif()
 
 if (NOT SKIP_TESTS)
-  set(SKIP_TESTS FALSE)
+  enable_testing()
+  # Enables ctest -T memcheck with valgrind
+  include(CTest)
+  if (COVERAGE_REPORT)
+    include(OmimCoverage)
+  endif ()
 endif()
 
 if (NOT PYTHON_VERSION)
@@ -234,27 +277,21 @@ endif()
 
 if (NOT PLATFORM_IPHONE AND NOT PLATFORM_ANDROID)
   list(APPEND qt_components Core Network)
-  if (NOT SKIP_DESKTOP OR NOT SKIP_TESTS OR PYBINDINGS)
+  if (NOT SKIP_QT_GUI OR NOT SKIP_TESTS OR PYBINDINGS)
     list(APPEND qt_components Widgets)
   endif()
-  if (NOT SKIP_DESKTOP)
-    list(APPEND qt_components Gui Xml Svg)
+  if (NOT SKIP_QT_GUI)
+    list(APPEND qt_components Gui Xml Svg OpenGL OpenGLWidgets)
   endif()
-  if (DEFINED ENV{HOMEBREW_PREFIX})
-    set(HOMEBREW_PREFIX $ENV{HOMEBREW_PREFIX})
-  else()
-    set(HOMEBREW_PREFIX /opt/homebrew)
-  endif()
-  # PATHS are hard-coded hints where to look for qt5 in addition to other places.
-  find_package(Qt5 COMPONENTS REQUIRED ${qt_components} PATHS $ENV{QT_PATH} ${HOMEBREW_PREFIX}/opt/qt@5 /usr/local/opt/qt@5 /usr/lib/x86_64-linux-gnu/qt5)
-  if (Qt5_VERSION VERSION_LESS 5.5.0)
-    message(FATAL_ERROR "Minimum supported Qt5 version is 5.5")
-  endif()
-endif()
+  # PATHS are hard-coded hints where to look for qt6 in addition to other places.
+  find_package(Qt6 COMPONENTS REQUIRED ${qt_components} PATHS $ENV{QT_PATH} /opt/homebrew/opt/qt@6 /usr/local/opt/qt@6 /usr/lib/x86_64-linux-gnu/qt6)
 
-find_library(LIBZ NAMES z)
-if (LIBZ STREQUAL "LIBZ-NOTFOUND")
-  message(FATAL_ERROR "Failed to find libz library.")
+  set(MINIMUM_REQUIRED_QT_VERSION 6.4.0)
+  if (Qt6Widgets_VERSION VERSION_LESS ${MINIMUM_REQUIRED_QT_VERSION})
+    message(FATAL_ERROR "Unsupported Qt version: ${Qt6Widgets_VERSION}, the minimum required is ${MINIMUM_REQUIRED_QT_VERSION}")
+  else()
+    message(STATUS "Found Qt version: ${Qt6Widgets_VERSION}")
+  endif()
 endif()
 
 # To allow #include "base/file_name.hpp" in all sources.
@@ -290,77 +327,37 @@ if (USE_PCH)
     ${OMIM_PCH_TARGET_NAME}
   )
 endif()
-# Include 3party dependencies.
 
-if (NOT WITH_SYSTEM_PROVIDED_3PARTY)
-  # Configure expat library.
-  # Suppress "Policy CMP0077 is not set: option() honors normal variables"
-  # for the expat options below.
-  set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-  set(EXPAT_BUILD_TOOLS OFF)
-  set(EXPAT_BUILD_EXAMPLES OFF)
-  set(EXPAT_BUILD_TESTS OFF)
-  set(EXPAT_BUILD_DOCS OFF)
-  set(EXPAT_BUILD_PKGCONFIG OFF)
-  set(EXPAT_ENABLE_INSTALL OFF)
-  set(EXPAT_SHARED_LIBS OFF)
-  add_subdirectory(3party/expat/expat)
-
-  # Configure Jansson library.
-  set(JANSSON_BUILD_DOCS OFF)
-  set(JANSSON_BUILD_MAN OFF)
-  set(JANSSON_EXAMPLES OFF)
-  set(JANSSON_INSTALL OFF)
-  set(JANSSON_WITHOUT_TESTS ON)
-  add_subdirectory(3party/jansson/jansson/)
-  target_include_directories(jansson INTERFACE "${PROJECT_BINARY_DIR}/3party/jansson/jansson/include")
-
-  # Add gflags library.
-  add_subdirectory(3party/gflags)
-  target_compile_options(gflags_nothreads_static PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wno-subobject-linkage>)
-  # Not needed for the usual build process, but it fixes QtCreator editor,
-  # that doesn't see gflags/gflags.h in binary dir (gflags has tricky cmake configuration).
-  if (PLATFORM_DESKTOP)
-    include_directories("${PROJECT_BINARY_DIR}/3party/gflags/include")
-  endif()
-
-  # Add pugixml library.
-  add_subdirectory(3party/pugixml)
-
-  # Add protobuf library.
-  add_subdirectory(${OMIM_ROOT}/3party/protobuf)
-endif()
-
-add_subdirectory(3party/agg)
-add_subdirectory(3party/bsdiff-courgette)
-
-if (LINUX_DETECTED)
+# Should be on the root level, not in 3party, so tests can get these dependencies.
+if (PLATFORM_LINUX OR PLATFORM_WIN)
   find_package(ICU COMPONENTS uc i18n data REQUIRED)
   find_package(Freetype REQUIRED)
-else()
-  add_subdirectory(3party/freetype)
-  add_subdirectory(3party/icu)
+  find_package(harfbuzz REQUIRED)
 endif()
 
-add_subdirectory(3party/liboauthcpp)
-add_subdirectory(3party/minizip)
-add_subdirectory(3party/opening_hours)
-add_subdirectory(3party/sdf_image)
-add_subdirectory(3party/stb_image)
-add_subdirectory(3party/succinct)
-add_subdirectory(3party/open-location-code)
-add_subdirectory(3party/vulkan_wrapper)
+if (WITH_SYSTEM_PROVIDED_3PARTY)
+  set(GFLAGS_USE_TARGET_NAMESPACE ON)
+  find_package(gflags REQUIRED)
 
-if (PLATFORM_DESKTOP)
-  add_subdirectory(3party/libtess2)
+  find_package(expat CONFIG REQUIRED)
+  find_package(jansson CONFIG REQUIRED)
+  find_package(pugixml REQUIRED)
+  find_package(utf8cpp REQUIRED)
 endif()
 
-find_package(Python3 COMPONENTS Interpreter)
-if (Python3_Interpreter_FOUND)
-  message(STATUS "Found python to use in qt/, shaders/ and 3party/: ${Python3_EXECUTABLE}")
-else()
-  message(FATAL_ERROR "Could not find python3 to use in qt/, shaders/ and 3party/.")
+find_package(ZLIB REQUIRED)
+
+# Include 3party dependencies.
+add_subdirectory(3party)
+
+# Not needed for the usual build process, but it fixes QtCreator editor,
+# that doesn't see gflags/gflags.h in binary dir (gflags has tricky cmake configuration).
+if (PLATFORM_DESKTOP AND NOT WITH_SYSTEM_PROVIDED_3PARTY)
+  include_directories("${PROJECT_BINARY_DIR}/3party/gflags/include")
 endif()
+
+# Used in qt/ and shaders/
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_subdirectory(base)
 add_subdirectory(coding)
@@ -386,10 +383,6 @@ add_subdirectory(traffic)
 add_subdirectory(transit)
 
 if (PLATFORM_DESKTOP)
-  if (BUILD_MAPSHOT)
-    add_subdirectory(mapshot)
-    add_subdirectory(software_renderer)
-  endif()
   omim_add_tool_subdirectory(feature_list)
   add_subdirectory(generator)
   add_subdirectory(openlr)
@@ -397,7 +390,7 @@ if (PLATFORM_DESKTOP)
   omim_add_tool_subdirectory(topography_generator)
   add_subdirectory(track_analyzing)
   omim_add_tool_subdirectory(track_generator)
-  if (NOT SKIP_DESKTOP)
+  if (NOT SKIP_QT_GUI)
     add_subdirectory(qt)
     omim_add_tool_subdirectory(skin_generator)
   endif()
@@ -406,5 +399,5 @@ endif()
 omim_add_test_subdirectory(qt_tstfrm)
 
 if (PLATFORM_ANDROID)
-  add_subdirectory(android/jni)
+  add_subdirectory(android/app/src/main/cpp)
 endif()

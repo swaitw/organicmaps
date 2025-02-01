@@ -14,10 +14,8 @@
 #include "shaders/programs.hpp"
 
 #include "drape/batcher.hpp"
-#include "drape/glsl_func.hpp"
 #include "drape/glsl_types.hpp"
 #include "drape/render_bucket.hpp"
-#include "drape/utils/vertex_decl.hpp"
 
 #include "transit/transit_entities.hpp"
 
@@ -212,8 +210,7 @@ void PlaceTitles(std::vector<TitleInfo> & titles, float textSize,
   size_t summaryRowsCount = 0;
   for (auto & name : titles)
   {
-    df::StraightTextLayout layout(strings::MakeUniString(name.m_text), textSize, false /* isSdf */,
-                                  textures, dp::Left, false /* forceNoWrap */);
+    StraightTextLayout layout(name.m_text, textSize, textures, dp::Left, false /* forceNoWrap */);
     name.m_pixelSize = layout.GetPixelSize() + m2::PointF(4.0f * vs, 4.0f * vs);
     name.m_rowsCount = layout.GetRowsCount();
     summaryRowsCount += layout.GetRowsCount();
@@ -278,7 +275,7 @@ void FillStopParamsSubway(TransitDisplayInfo const & transitDisplayInfo,
 {
   FeatureID featureId;
   std::string title;
-  if (stop.GetFeatureId() != routing::transit::kInvalidFeatureId)
+  if (stop.GetFeatureId() != kInvalidFeatureId)
   {
     featureId = FeatureID(mwmId, stop.GetFeatureId());
     title = transitDisplayInfo.m_features.at(featureId).m_title;
@@ -301,7 +298,7 @@ void FillStopParamsPT(TransitDisplayInfo const & transitDisplayInfo, MwmSet::Mwm
   FeatureID featureId;
   std::string title;
 
-  if (stop.GetFeatureId() != routing::transit::kInvalidFeatureId)
+  if (stop.GetFeatureId() != kInvalidFeatureId)
   {
     featureId = FeatureID(mwmId, stop.GetFeatureId());
     auto const itFeature = transitDisplayInfo.m_features.find(featureId);

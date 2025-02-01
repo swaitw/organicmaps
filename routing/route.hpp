@@ -43,44 +43,83 @@ SubrouteUid constexpr kInvalidSubrouteId = std::numeric_limits<uint64_t>::max();
 class RouteSegment final
 {
 public:
-  // Store coefficient where camera placed at the segment (number from 0 to 1)
-  // and it's max speed.
   struct SpeedCamera
   {
     SpeedCamera() = default;
     SpeedCamera(double coef, uint8_t maxSpeedKmPH): m_coef(coef), m_maxSpeedKmPH(maxSpeedKmPH) {}
 
-    friend bool operator<(SpeedCamera const & lhs, SpeedCamera const & rhs)
+    bool EqualCoef(SpeedCamera const & rhs) const
     {
-      static auto constexpr kCoefEps = 1e-5;
-      if (!base::AlmostEqualAbs(lhs.m_coef, rhs.m_coef, kCoefEps))
-        return lhs.m_coef < rhs.m_coef;
-
-      // Cameras with same position on segment should be sorted in speed decrease order.
-      // Thus camera with higher speed will be warned the first.
-      return lhs.m_maxSpeedKmPH > rhs.m_maxSpeedKmPH;
+      return base::AlmostEqualAbs(m_coef, rhs.m_coef, 1.0E-5);
     }
 
+    bool operator<(SpeedCamera const & rhs) const
+    {
+      if (!EqualCoef(rhs))
+        return m_coef < rhs.m_coef;
+
+      // Keep a camera with lowest speed (unique).
+      return m_maxSpeedKmPH < rhs.m_maxSpeedKmPH;
+    }
+
+    friend std::string DebugPrint(SpeedCamera const & rhs);
+
+    /// @todo Can replace with uint16_t feature node index, assuming that all cameras are placed on nodes.
+    // Сoefficient where camera placed at the segment (number from 0 to 1).
     double m_coef = 0.0;
+    // Max speed
     uint8_t m_maxSpeedKmPH = 0;
   };
 
   struct RoadNameInfo
   {
     // This is for street/road. |m_ref| |m_name|.
-    std::string m_name; // E.g "Johnson Ave.".
-    std::string m_ref; // Number of street/road e.g. "CA 85".
+    std::string m_name;             // E.g "Johnson Ave.".
+    std::string m_destination_ref;  // Number of next road, e.g. "CA 85", Sometimes "CA 85 South". Usually match |m_ref|
+                                    // of next main road.
     // This is for 1st segment of link after junction. Exit |junction_ref| to |m_destination_ref| for |m_destination|.
-    std::string m_junction_ref; // Number of junction e.g. "398B".
-    std::string m_destination_ref; // Number of next road, e.g. "CA 85", Sometimes "CA 85 South". Usually match |m_ref| of next main road.
-    std::string m_destination; // E.g. "Cupertino".
+    std::string m_junction_ref;     // Number of junction e.g. "398B".
+    std::string m_destination;      // E.g. "Cupertino".
+    std::string m_ref;              // Number of street/road e.g. "CA 85".
     bool m_isLink = false;
+
+    RoadNameInfo() = default;
+    RoadNameInfo(std::string name) : m_name(std::move(name)) {}
+    RoadNameInfo(std::string name, std::string destination_ref)
+      : m_name(std::move(name)), m_destination_ref(std::move(destination_ref))
+    {
+    }
+    RoadNameInfo(std::string name, std::string destination_ref, std::string junction_ref)
+      : m_name(std::move(name)), m_destination_ref(std::move(destination_ref)), m_junction_ref(std::move(junction_ref))
+    {
+    }
+    RoadNameInfo(std::string name, std::string ref, std::string junction_ref, std::string destination_ref,
+                 std::string destination, bool isLink)
+      : m_name(std::move(name))
+      , m_destination_ref(std::move(destination_ref))
+      , m_junction_ref(std::move(junction_ref))
+      , m_destination(std::move(destination))
+      , m_ref(std::move(ref))
+      , m_isLink(std::move(isLink))
+    {
+    }
 
     bool HasBasicTextInfo() const { return !m_ref.empty() || !m_name.empty(); }
     bool HasExitInfo() const { return m_isLink || HasExitTextInfo(); }
     bool HasExitTextInfo() const
     {
       return !m_junction_ref.empty() || !m_destination_ref.empty() || !m_destination.empty();
+    }
+    bool empty() const
+    {
+      return m_name.empty() && m_ref.empty() && m_junction_ref.empty() && m_destination_ref.empty() &&
+             m_destination.empty();
+    }
+
+    bool operator==(RoadNameInfo const & rni) const
+    {
+      return m_name == rni.m_name && m_ref == rni.m_ref && m_junction_ref == rni.m_junction_ref &&
+             m_destination_ref == rni.m_destination_ref && m_destination == rni.m_destination;
     }
 
     friend std::string DebugPrint(RoadNameInfo const & rni);
@@ -353,6 +392,9 @@ public:
 
   /// \brief Return name info of a street according to the next turn.
   void GetNextTurnStreetName(RouteSegment::RoadNameInfo & roadNameInfo) const;
+
+  /// \brief Return name info of a street according to the next next turn.
+  void GetNextNextTurnStreetName(RouteSegment::RoadNameInfo & roadNameInfo) const;
 
   /// \brief Gets turn information after the turn next to the nearest one.
   /// \param distanceToTurnMeters is a distance from current position to the second turn.

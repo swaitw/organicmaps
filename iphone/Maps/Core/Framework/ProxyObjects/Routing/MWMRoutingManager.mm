@@ -77,15 +77,16 @@
 }
 
 - (MWMRouteInfo *)routeInfo {
-  if (!self.isRoutingActive) { return  nil; }
+  if (!self.isRoutingActive)
+    return nil;
   routing::FollowingInfo info;
   self.rm.GetRouteFollowingInfo(info);
-  if (!info.IsValid()) { return nil; }
+  if (!info.IsValid())
+    return nil;
   CLLocation * lastLocation = [MWMLocationManager lastLocation];
   double speedMps = 0;
-  if (lastLocation && lastLocation.speed >= 0) {
+  if (lastLocation && lastLocation.speed >= 0)
     speedMps = lastLocation.speed;
-  }
   NSInteger roundExitNumber = 0;
   if (info.m_turn == routing::turns::CarDirection::EnterRoundAbout ||
       info.m_turn == routing::turns::CarDirection::StayOnRoundAbout ||
@@ -94,11 +95,11 @@
   }
 
   MWMRouteInfo *objCInfo = [[MWMRouteInfo alloc] initWithTimeToTarget:info.m_time
-                                                       targetDistance:@(info.m_distToTarget.c_str())
-                                                          targetUnits:@(info.m_targetUnitsSuffix.c_str())
-                                                       distanceToTurn:@(info.m_distToTurn.c_str())
-                                                           streetName:@(info.m_displayedStreetName.c_str())
-                                                            turnUnits:@(info.m_turnUnitsSuffix.c_str())
+                                                     targetDistance: info.m_distToTarget.GetDistance()
+                                                     targetUnitsIndex:static_cast<UInt8>(info.m_distToTarget.GetUnits())
+                                                       distanceToTurn:info.m_distToTurn.GetDistance()
+                                                       turnUnitsIndex:static_cast<UInt8>(info.m_distToTurn.GetUnits())
+                                                           streetName:@(info.m_nextStreetName.c_str())
                                                         turnImageName:[self turnImageName:info.m_turn isPrimary:YES]
                                                     nextTurnImageName:[self turnImageName:info.m_nextTurn isPrimary:NO]
                                                              speedMps:speedMps
@@ -249,7 +250,8 @@
 - (void)onLocationUpdate:(CLLocation *)location {
   NSMutableArray<NSString *> * turnNotifications = [NSMutableArray array];
   std::vector<std::string> notifications;
-  self.rm.GenerateNotifications(notifications);
+  auto announceStreets = [NSUserDefaults.standardUserDefaults boolForKey:@"UserDefaultsNeedToEnableStreetNamesTTS"];
+  self.rm.GenerateNotifications(notifications, announceStreets);
   for (auto const & text : notifications) {
     [turnNotifications addObject:@(text.c_str())];
   }

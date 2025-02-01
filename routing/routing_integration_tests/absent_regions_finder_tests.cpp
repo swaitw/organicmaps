@@ -152,16 +152,21 @@ UNIT_CLASS_TEST(TestAbsentRegionsFinder, Belgium_Germany)
   Checkpoints const checkpoints{mercator::FromLatLon(50.87763, 4.44676),
                                 mercator::FromLatLon(50.76935, 6.42488)};
 
-  // OSRM, Valhalla prefers major road E40 vs GraphHopper with E314 (the difference is 5 minutes).
-  // "Belgium_Liege" should present for E40 and not present for E314.
-  /// @todo OM usually takes E40, but sometimes E314 :)
-  std::set<std::string> const planRegions = {
-    "Belgium_Flemish Brabant", "Belgium_Liege", "Belgium_Limburg",
+  // OSRM, Valhalla with E40.
+  std::set<std::string> const expected1 = {
+    "Belgium_Flemish Brabant", "Belgium_Walloon Brabant", "Belgium_Liege",
     "Germany_North Rhine-Westphalia_Regierungsbezirk Koln_Aachen",
-    "Netherlands_Limburg"
   };
 
-  TestRegions(checkpoints, planRegions);
+  // GraphHopper with E314.
+  std::set<std::string> const expected2 = {
+      "Belgium_Flemish Brabant", "Belgium_Limburg",
+      "Germany_North Rhine-Westphalia_Regierungsbezirk Koln_Aachen",
+      "Netherlands_Limburg",
+  };
+
+  auto const actual = GetRegions(checkpoints);
+  TEST(actual == expected1 || actual == expected2, (actual));
 }
 
 // From "Germany_North Rhine-Westphalia_Regierungsbezirk Koln_Aachen" to "Belgium_Flemish Brabant".
@@ -171,12 +176,21 @@ UNIT_CLASS_TEST(TestAbsentRegionsFinder, Germany_Belgium)
   Checkpoints const checkpoints{mercator::FromLatLon(50.76935, 6.42488),
                                 mercator::FromLatLon(50.78285, 4.46508)};
 
-  std::set<std::string> const planRegions = {
-    "Belgium_Flemish Brabant", "Belgium_Liege", "Belgium_Limburg",
+  // Valhalla with E40.
+  std::set<std::string> const expected1 = {
+    "Belgium_Flemish Brabant", "Belgium_Walloon Brabant", "Belgium_Liege", "Belgium_Limburg",
     "Germany_North Rhine-Westphalia_Regierungsbezirk Koln_Aachen"
   };
 
-  TestRegions(checkpoints, planRegions);
+  // OSRM, GraphHopper with E314.
+  std::set<std::string> const expected2 = {
+      "Belgium_Flemish Brabant", "Belgium_Limburg",
+      "Germany_North Rhine-Westphalia_Regierungsbezirk Koln_Aachen",
+      "Netherlands_Limburg",
+  };
+
+  auto const actual = GetRegions(checkpoints);
+  TEST(actual == expected1 || actual == expected2, (actual));
 }
 
 // From "Kazakhstan_South" to "Mongolia".
@@ -253,9 +267,7 @@ UNIT_CLASS_TEST(TestAbsentRegionsFinder, China)
   Checkpoints const checkpoints{mercator::FromLatLon(30.78611, 102.55829),
                                 mercator::FromLatLon(27.54127, 102.02502)};
 
-  std::set<std::string> const planRegions{};
-
-  TestRegions(checkpoints, planRegions);
+  TestRegions(checkpoints, {});
 }
 
 // Inside "Finland_Eastern Finland_North".
@@ -264,9 +276,7 @@ UNIT_CLASS_TEST(TestAbsentRegionsFinder, Finland)
   Checkpoints const checkpoints{mercator::FromLatLon(63.54162, 28.71141),
                                 mercator::FromLatLon(64.6790, 28.73029)};
 
-  std::set<std::string> const planRegions{};
-
-  TestRegions(checkpoints, planRegions);
+  TestRegions(checkpoints, {});
 }
 
 // https://github.com/organicmaps/organicmaps/issues/980
@@ -280,4 +290,26 @@ UNIT_CLASS_TEST(TestAbsentRegionsFinder, BC_Alberta)
 
   TestRegions(checkpoints, planRegions);
 }
+
+// https://github.com/organicmaps/organicmaps/issues/1721
+UNIT_CLASS_TEST(TestAbsentRegionsFinder, Germany_Cologne_Croatia_Zagreb)
+{
+  Checkpoints const checkpoints{mercator::FromLatLon(50.924, 6.943),
+                                mercator::FromLatLon(45.806, 15.963)};
+
+  /// @todo Optimal route should include Graz-Maribor-Zagreb.
+  auto const & rgns = GetRegions(checkpoints);
+  TEST(rgns.count("Austria_Styria_Graz") > 0, ());
+}
+
+UNIT_CLASS_TEST(TestAbsentRegionsFinder, Russia_SPB_Pechory)
+{
+  Checkpoints const checkpoints{mercator::FromLatLon(59.9387323, 30.3162295),
+                                mercator::FromLatLon(57.8133044, 27.6081855)};
+
+  /// @todo Optimal should not include Estonia.
+  for (auto const & rgn : GetRegions(checkpoints))
+    TEST(!rgn.starts_with("Estonia"), ());
+}
+
 } // namespace absent_regions_finder_tests
