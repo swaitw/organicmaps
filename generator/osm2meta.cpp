@@ -28,7 +28,6 @@ constexpr char const * kOSMMultivalueDelimiter = ";";
 
 // https://en.wikipedia.org/wiki/List_of_tallest_buildings_in_the_world
 auto constexpr kMaxBuildingLevelsInTheWorld = 167;
-auto constexpr kMinBuildingLevel = -6;
 
 template <class T>
 void RemoveDuplicatesAndKeepOrder(std::vector<T> & vec)
@@ -102,16 +101,13 @@ std::string MetadataTagProcessorImpl::ValidateAndFormat_stars(std::string const 
 
 std::string MetadataTagProcessorImpl::ValidateAndFormat_operator(std::string const & v) const
 {
+  using namespace ftypes;
   auto const & t = m_params.m_types;
-  if (ftypes::IsATMChecker::Instance()(t) ||
-      ftypes::IsPaymentTerminalChecker::Instance()(t) ||
-      ftypes::IsMoneyExchangeChecker::Instance()(t) ||
-      ftypes::IsFuelStationChecker::Instance()(t) ||
-      ftypes::IsRecyclingCentreChecker::Instance()(t) ||
-      ftypes::IsPostOfficeChecker::Instance()(t) ||
-      ftypes::IsCarSharingChecker::Instance()(t) ||
-      ftypes::IsCarRentalChecker::Instance()(t) ||
-      ftypes::IsBicycleRentalChecker::Instance()(t))
+  if (IsATMChecker::Instance()(t) ||
+      IsRecyclingCentreChecker::Instance()(t) ||
+      IsRecyclingContainerChecker::Instance()(t) ||
+      IsPostPoiChecker::Instance()(t) ||
+      IsOperatorOthersPoiChecker::Instance()(t))
   {
     return v;
   }
@@ -121,6 +117,23 @@ std::string MetadataTagProcessorImpl::ValidateAndFormat_operator(std::string con
 
 std::string MetadataTagProcessorImpl::ValidateAndFormat_url(std::string const & v)
 {
+  // Remove the last slash if it's after the hostname to beautify URLs in the UI and save a byte of space:
+  // https://www.test.com/ => https://www.test.com
+  // www.test.com/ => www.test.com
+  // www.test.com/path => www.test.com/path
+  // www.test.com/path/ => www.test.com/path/
+  constexpr std::string_view kHttps = "https://";
+  constexpr std::string_view kHttp = "http://";
+  size_t start = 0;
+  if (v.starts_with(kHttps))
+    start = kHttps.size();
+  else if (v.starts_with(kHttp))
+    start = kHttp.size();
+  auto const first = v.find('/', start);
+  if (first == std::string::npos)
+    return v;
+  if (first + 1 == v.size())
+    return std::string{v.begin(), --v.end()};
   return v;
 }
 
@@ -215,6 +228,7 @@ std::string MetadataTagProcessorImpl::ValidateAndFormat_building_levels(std::str
 {
   // Some mappers use full width unicode digits. We can handle that.
   strings::NormalizeDigits(v);
+  // value of building_levels is only one number
   double levels;
   if (Prefix2Double(v, levels) && levels >= 0 && levels <= kMaxBuildingLevelsInTheWorld)
     return strings::to_string_dac(levels, 1);
@@ -226,11 +240,8 @@ std::string MetadataTagProcessorImpl::ValidateAndFormat_level(std::string v)
 {
   // Some mappers use full width unicode digits. We can handle that.
   strings::NormalizeDigits(v);
-  double levels;
-  if (Prefix2Double(v, levels) && levels >= kMinBuildingLevel && levels <= kMaxBuildingLevelsInTheWorld)
-    return strings::to_string(levels);
-
-  return {};
+  // value of level can be more than one number, so e.g. "1;2" or "3-5"
+  return v;
 }
 
 std::string MetadataTagProcessorImpl::ValidateAndFormat_denomination(std::string const & v)
@@ -285,22 +296,17 @@ std::string MetadataTagProcessorImpl::ValidateAndFormat_wikipedia(std::string v)
 
 std::string MetadataTagProcessorImpl::ValidateAndFormat_wikimedia_commons(std::string v)
 {
-
   // Putting the full wikimedia url to this tag is incorrect according to:
   // https://wiki.openstreetmap.org/wiki/Key:wikimedia_commons
   // But it happens often enough that we should guard against it.
   strings::ReplaceFirst(v, "https://commons.wikimedia.org/wiki/", "");
   strings::ReplaceFirst(v, "https://commons.m.wikimedia.org/wiki/", "");
 
-  if (strings::StartsWith(v, "File:") || strings::StartsWith(v, "Category:"))
-  {
+  if (v.starts_with("File:") || v.starts_with("Category:"))
     return v;
-  }
-  else
-  {
-    LOG(LDEBUG, ("Invalid Wikimedia Commons tag value:", v));
-    return {};
-  }
+
+  LOG(LDEBUG, ("Invalid Wikimedia Commons tag value:", v));
+  return {};
 }
 
 std::string MetadataTagProcessorImpl::ValidateAndFormat_airport_iata(std::string const & v) const
@@ -319,6 +325,45 @@ std::string MetadataTagProcessorImpl::ValidateAndFormat_airport_iata(std::string
     c = std::toupper(c);
   }
   return str;
+}
+
+std::string MetadataTagProcessorImpl::ValidateAndFormat_brand(std::string const & v)
+{
+  return v;
+}
+
+std::string MetadataTagProcessorImpl::ValidateAndFormat_capacity(std::string const & v)
+{
+  return v;
+}
+
+std::string MetadataTagProcessorImpl::ValidateAndFormat_local_ref(std::string const & v)
+{
+  return v;
+}
+
+std::string MetadataTagProcessorImpl::ValidateAndFormat_drive_through(std::string v)
+{
+  strings::AsciiToLower(v);
+  if (v == "yes" || v == "no")
+    return v;
+  return {};
+}
+
+std::string MetadataTagProcessorImpl::ValidateAndFormat_self_service(std::string v)
+{
+  strings::AsciiToLower(v);
+  if (v == "yes" || v == "only" || v == "partially" || v == "no")
+    return v;
+  return {};
+}
+
+std::string MetadataTagProcessorImpl::ValidateAndFormat_outdoor_seating(std::string v)
+{
+  strings::AsciiToLower(v);
+  if (v == "yes" || v == "no")
+    return v;
+  return {};
 }
 
 std::string MetadataTagProcessorImpl::ValidateAndFormat_duration(std::string const & v) const
@@ -370,7 +415,7 @@ std::string MetadataTagProcessorImpl::ValidateAndFormat_duration(std::string con
   size_t pos = 0;
   std::optional<uint32_t> op;
 
-  if (strings::StartsWith(v, "PT"))
+  if (v.starts_with("PT"))
   {
     if (v.size() < 4)
       return {};
@@ -442,19 +487,27 @@ void MetadataTagProcessor::operator()(std::string const & k, std::string const &
   using feature::Metadata;
   Metadata & md = m_params.GetMetadata();
 
-  if (strings::StartsWith(k, "description"))
+  auto const getLang = [view = std::string_view(k)]()
   {
-    // Process description tags.
-    int8_t lang = StringUtf8Multilang::kDefaultCode;
-    size_t const i = k.find(':');
-    if (i != std::string::npos)
+    size_t const i = view.find(':');
+    if (i != std::string_view::npos)
+      return view.substr(i + 1);
+    return std::string_view();
+  };
+
+  if (k.starts_with("description"))
+  {
+    // Separate description tags processing.
+    int8_t langIdx = StringUtf8Multilang::kDefaultCode;
+    auto const lang = getLang();
+    if (!lang.empty())
     {
-      int8_t const l = StringUtf8Multilang::GetLangIndex(k.substr(i+1));
-      if (l != StringUtf8Multilang::kUnsupportedLanguageCode)
-        lang = l;
+      langIdx = StringUtf8Multilang::GetLangIndex(lang);
+      if (langIdx == StringUtf8Multilang::kUnsupportedLanguageCode)
+        return;
     }
 
-    m_description.AddString(lang, v);
+    m_description.AddString(langIdx, v);
     return;
   }
 
@@ -469,8 +522,13 @@ void MetadataTagProcessor::operator()(std::string const & k, std::string const &
   case Metadata::FMD_FAX_NUMBER:  // The same validator as for phone.
   case Metadata::FMD_PHONE_NUMBER: valid = ValidateAndFormat_phone(v); break;
   case Metadata::FMD_STARS: valid = ValidateAndFormat_stars(v); break;
-  case Metadata::FMD_OPERATOR: valid = ValidateAndFormat_operator(v); break;
+  case Metadata::FMD_OPERATOR:
+    if (!m_operatorF.Add(getLang()))
+      return;
+    valid = ValidateAndFormat_operator(v);
+    break;
   case Metadata::FMD_WEBSITE: valid = ValidateAndFormat_url(v); break;
+  case Metadata::FMD_WEBSITE_MENU: valid = ValidateAndFormat_url(v); break;
   case Metadata::FMD_CONTACT_FACEBOOK: valid = osm::ValidateAndFormat_facebook(v); break;
   case Metadata::FMD_CONTACT_INSTAGRAM: valid = osm::ValidateAndFormat_instagram(v); break;
   case Metadata::FMD_CONTACT_TWITTER: valid = osm::ValidateAndFormat_twitter(v); break;
@@ -496,14 +554,31 @@ void MetadataTagProcessor::operator()(std::string const & k, std::string const &
   case Metadata::FMD_BUILDING_LEVELS: valid = ValidateAndFormat_building_levels(v); break;
   case Metadata::FMD_LEVEL: valid = ValidateAndFormat_level(v); break;
   case Metadata::FMD_AIRPORT_IATA: valid = ValidateAndFormat_airport_iata(v); break;
+  case Metadata::FMD_BRAND:
+    if (!m_brandF.Add(getLang()))
+      return;
+    valid = ValidateAndFormat_brand(v);
+    break;
   case Metadata::FMD_DURATION: valid = ValidateAndFormat_duration(v); break;
+  case Metadata::FMD_CAPACITY: valid = ValidateAndFormat_capacity(v); break;
+  case Metadata::FMD_LOCAL_REF: valid = ValidateAndFormat_local_ref(v); break;
+  case Metadata::FMD_DRIVE_THROUGH: valid = ValidateAndFormat_drive_through(v); break;
+  case Metadata::FMD_SELF_SERVICE: valid = ValidateAndFormat_self_service(v); break;
+  case Metadata::FMD_OUTDOOR_SEATING: valid = ValidateAndFormat_outdoor_seating(v); break;
+  case Metadata::FMD_NETWORK: valid = ValidateAndFormat_operator(v); break;
   // Metadata types we do not get from OSM.
   case Metadata::FMD_CUISINE:
-  case Metadata::FMD_BRAND:
   case Metadata::FMD_DESCRIPTION:   // processed separately
   case Metadata::FMD_TEST_ID:
+  case Metadata::FMD_CUSTOM_IDS:
+  case Metadata::FMD_PRICE_RATES:
+  case Metadata::FMD_RATINGS:
+  case Metadata::FMD_EXTERNAL_URI:
+  case Metadata::FMD_WHEELCHAIR:
   case Metadata::FMD_COUNT: CHECK(false, (mdType, "should not be parsed from OSM."));
   }
 
-  md.Set(mdType, valid);
+  /// @todo What should remain for multiple tag keys, like PHONE_NUMBER, WEBSITE, INTERNET?
+  if (!valid.empty())
+    md.Set(mdType, valid);
 }

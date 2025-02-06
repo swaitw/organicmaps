@@ -19,12 +19,21 @@ on:
       - docs/**
       - generator/**
       - packaging/**
+      - platform/*apple*
+      - platform/*_ios*
+      - platform/*_linux* 
+      - platform/*_mac* 
+      - platform/*qt* 
+      - platform/*_win* 
       - pyhelpers/**
       - qt*/**
       - skin_generator/**
       - tools/**
       - track_generator/**
       - xcode/**
+
+env:
+  JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64  # Java 17 is required for Android Gradle 8 plugin
 
 jobs:
   android-google-beta:
@@ -39,7 +48,7 @@ jobs:
           sudo apt-get install -y ninja-build
 
       - name: Checkout sources
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 100 # enough to get all commits for the current day
 
@@ -47,19 +56,24 @@ jobs:
         shell: bash
         run: git submodule update --depth 1 --init --recursive --jobs=$(($(nproc) * 20))
 
-      - name: Checkout private keys
-        uses: actions/checkout@v3
-        with:
-          repository: ${{ secrets.PRIVATE_REPO }}
-          ssh-key: ${{ secrets.PRIVATE_SSH_KEY }}
-          ref: master
-          path: private.git
-
-      - name: Configure repo with private keys
+      - name: Restore beta keys
         shell: bash
         run: |
-          ./configure.sh ./private.git
-          rm -rf ./private.git
+          echo "$PRIVATE_H" | base64 -d > private.h
+          echo "$FIREBASE_APP_DISTRIBUTION_JSON" | base64 -d > android/app/firebase-app-distribution.json
+          echo "$GOOGLE_SERVICES_JSON" | base64 -d > android/app/google-services.json
+          echo "$SECURE_PROPERTIES" | base64 -d > android/app/secure.properties
+          echo "$RELEASE_KEYSTORE" | base64 -d > android/app/release.keystore
+        env:
+          PRIVATE_H: ${{ secrets.PRIVATE_H }}
+          FIREBASE_APP_DISTRIBUTION_JSON: ${{ secrets.FIREBASE_APP_DISTRIBUTION_JSON }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          SECURE_PROPERTIES: ${{ secrets.SECURE_PROPERTIES }}
+          RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+
+      - name: Configure repository
+        shell: bash
+        run: ./configure.sh
 
       - name: Compile
         shell: bash
@@ -67,7 +81,7 @@ jobs:
         run: |
           cmake --version
           ninja --version
-          gradle -x lint -x lintVitalGoogleBeta assembleGoogleBeta uploadCrashlyticsSymbolFileGoogleBeta uploadCrashlyticsMappingFileGoogleBeta
+          ./gradlew -Pfirebase assembleGoogleBeta uploadCrashlyticsSymbolFileGoogleBeta uploadCrashlyticsMappingFileGoogleBeta
 
       - name: Upload beta apk to App Distribution
         shell: bash

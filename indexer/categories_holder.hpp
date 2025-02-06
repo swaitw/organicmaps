@@ -61,15 +61,15 @@ public:
   // Should match codes in the array below.
   static int8_t constexpr kEnglishCode = 1;
   static int8_t constexpr kUnsupportedLocaleCode = -1;
-  static int8_t constexpr kSimplifiedChineseCode = 41;
-  static int8_t constexpr kTraditionalChineseCode = 42;
+  static int8_t constexpr kSimplifiedChineseCode = 44;
+  static int8_t constexpr kTraditionalChineseCode = 45;
   // *NOTE* These constants should be updated when adding new
   // translation to categories.txt. When editing, keep in mind to check
   // CategoriesHolder::MapLocaleToInteger() and
   // CategoriesHolder::MapIntegerToLocale() as their implementations
   // strongly depend on the contents of the variable.
   // TODO: Refactor for more flexibility and to avoid breaking rules in two methods mentioned above.
-  static std::array<CategoriesHolder::Mapping, 42> constexpr kLocaleMapping = {{
+  static std::array<CategoriesHolder::Mapping, 45> constexpr kLocaleMapping = {{
       {"en", kEnglishCode},
       {"en-AU", 2},
       {"en-GB", 3},
@@ -90,26 +90,29 @@ public:
       {"fi", 18},
       {"fr", 19},
       {"he", 20},
-      {"hu", 21},
-      {"id", 22},
-      {"it", 23},
-      {"ja", 24},
-      {"ko", 25},
-      {"mr", 26},
-      {"nb", 27},
-      {"nl", 28},
-      {"pl", 29},
-      {"pt", 30},
-      {"pt-BR", 31},
-      {"ro", 32},
-      {"ru", 33},
-      {"sk", 34},
-      {"sv", 35},
-      {"sw", 36},
-      {"th", 37},
-      {"tr", 38},
-      {"uk", 39},
-      {"vi", 40},
+      {"hi", 21},
+      {"hu", 22},
+      {"id", 23},
+      {"it", 24},
+      {"ja", 25},
+      {"ko", 26},
+      {"lv", 27},
+      {"mr", 28},
+      {"nb", 29},
+      {"nl", 30},
+      {"pl", 31},
+      {"pt", 32},
+      {"pt-BR", 33},
+      {"ro", 34},
+      {"ru", 35},
+      {"sk", 36},
+      {"sr", 37},
+      {"sv", 38},
+      {"sw", 39},
+      {"th", 40},
+      {"tr", 41},
+      {"uk", 42},
+      {"vi", 43},
       {"zh-Hans", kSimplifiedChineseCode},
       {"zh-Hant", kTraditionalChineseCode},
   }};

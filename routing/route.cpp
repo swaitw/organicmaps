@@ -19,7 +19,7 @@ using namespace std;
 namespace
 {
 double constexpr kOnEndToleranceM = 10.0;
-double constexpr kSteetNameLinkMeters = 400.;
+double constexpr kSteetNameLinkMeters = 400.0;
 }  //  namespace
 
 std::string DebugPrint(RouteSegment::RoadNameInfo const & rni)
@@ -35,6 +35,12 @@ std::string DebugPrint(RouteSegment::RoadNameInfo const & rni)
       << " }";
   return out.str();
 }
+
+std::string DebugPrint(RouteSegment::SpeedCamera const & rhs)
+{
+  return "SpeedCamera{ " + std::to_string(rhs.m_coef) + ", " + std::to_string(int(rhs.m_maxSpeedKmPH)) + " }";
+}
+
 
 Route::Route(string const & router, vector<m2::PointD> const & points, uint64_t routeId,
              string const & name)
@@ -177,6 +183,14 @@ void Route::GetNextTurnStreetName(RouteSegment::RoadNameInfo & roadNameInfo) con
   double distance;
   TurnItem turn;
   GetNearestTurn(distance, turn);
+  GetClosestStreetNameAfterIdx(turn.m_index, roadNameInfo);
+}
+
+void Route::GetNextNextTurnStreetName(RouteSegment::RoadNameInfo & roadNameInfo) const
+{
+  double distance;
+  TurnItem turn;
+  GetNextTurn(distance, turn);
   GetClosestStreetNameAfterIdx(turn.m_index, roadNameInfo);
 }
 
@@ -521,6 +535,9 @@ std::string Route::DebugPrintTurns() const
     // Always print first elemenst as Start.
     if (i == 0 || !turn.IsTurnNone())
     {
+      res += DebugPrint(mercator::ToLatLon(m_routeSegments[i].GetJunction()));
+      res += "\n";
+
       res += DebugPrint(turn);
       res += "\n";
 

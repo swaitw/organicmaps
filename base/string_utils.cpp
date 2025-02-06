@@ -1,6 +1,7 @@
 #include "base/string_utils.hpp"
 
 #include "base/assert.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -63,6 +64,8 @@ bool ToReal(char const * start, T & result)
 
 }  // namespace
 
+UniString UniString::kSpace = MakeUniString(" ");
+
 bool UniString::IsEqualAscii(char const * s) const
 {
   return (size() == strlen(s) && std::equal(begin(), end(), s));
@@ -87,7 +90,7 @@ UniChar LastUniChar(std::string const & s)
 {
   if (s.empty())
     return 0;
-  utf8::unchecked::iterator<std::string::const_iterator> iter(s.end());
+  utf8::unchecked::iterator iter(s.end());
   --iter;
   return *iter;
 }
@@ -206,13 +209,27 @@ void AsciiToLower(std::string & s)
   std::transform(s.begin(), s.end(), s.begin(), [](char in)
   {
     char constexpr diff = 'z' - 'Z';
-    static_assert(diff == 'a' - 'A', "");
-    static_assert(diff > 0, "");
+    static_assert(diff == 'a' - 'A');
+    static_assert(diff > 0);
 
     if (in >= 'A' && in <= 'Z')
       return char(in + diff);
     return in;
   });
+}
+
+void AsciiToUpper(std::string & s)
+{
+  std::transform(s.begin(), s.end(), s.begin(), [](char in)
+  {
+    char constexpr diff = 'z' - 'Z';
+    static_assert(diff == 'a' - 'A');
+    static_assert(diff > 0);
+
+    if (in >= 'a' && in <= 'z')
+      return char(in - diff);
+    return in;
+ });
 }
 
 void Trim(std::string & s)
@@ -226,10 +243,25 @@ void Trim(std::string_view & sv)
   if (beg != sv.end())
   {
     auto const end = std::find_if(sv.crbegin(), sv.crend(), [](auto c) { return !std::isspace(c); }).base();
-    sv = std::string_view(beg, std::distance(beg, end));
+    sv = std::string_view(sv.data() + std::distance(sv.begin(), beg), std::distance(beg, end));
   }
   else
     sv = {};
+}
+
+void Trim(std::string_view & s, std::string_view anyOf)
+{
+  auto i = s.find_first_not_of(anyOf);
+  if (i != std::string_view::npos)
+  {
+    s.remove_prefix(i);
+
+    i = s.find_last_not_of(anyOf);
+    ASSERT(i != std::string_view::npos, ());
+    s.remove_suffix(s.size() - i - 1);
+  }
+  else
+    s = {};
 }
 
 void Trim(std::string & s, std::string_view anyOf)
@@ -276,6 +308,13 @@ std::string ToUtf8(UniString const & s)
   return result;
 }
 
+std::u16string ToUtf16(std::string_view utf8)
+{
+  std::u16string utf16;
+  utf8::unchecked::utf8to16(utf8.begin(), utf8.end(), back_inserter(utf16));
+  return utf16;
+}
+
 bool IsASCIIString(std::string_view sv)
 {
   for (auto c : sv)
@@ -300,26 +339,6 @@ bool StartsWith(UniString const & s, UniString const & p)
   return StartsWith(s.begin(), s.end(), p.begin(), p.end());
 }
 
-bool StartsWith(std::string const & s1, char const * s2)
-{
-  return (s1.compare(0, strlen(s2), s2) == 0);
-}
-
-bool StartsWith(std::string const & s1, std::string_view s2)
-{
-  return (s1.compare(0, s2.length(), s2) == 0);
-}
-
-bool StartsWith(std::string const & s, std::string::value_type c)
-{
-  return s.empty() ? false : s.front() == c;
-}
-
-bool StartsWith(std::string const & s1, std::string const & s2)
-{
-  return (s1.compare(0, s2.length(), s2) == 0);
-}
-
 bool EndsWith(UniString const & s1, UniString const & s2)
 {
   if (s1.size() < s2.size())
@@ -328,33 +347,9 @@ bool EndsWith(UniString const & s1, UniString const & s2)
   return std::equal(s1.end() - s2.size(), s1.end(), s2.begin());
 }
 
-bool EndsWith(std::string const & s1, char const * s2)
-{
-  return EndsWith(s1, std::string_view(s2));
-}
-
-bool EndsWith(std::string const & s1, std::string_view s2)
-{
-  size_t const n = s1.size();
-  size_t const m = s2.size();
-  if (n < m)
-    return false;
-  return (s1.compare(n - m, m, s2) == 0);
-}
-
-bool EndsWith(std::string const & s, std::string::value_type c)
-{
-  return s.empty() ? false : s.back() == c;
-}
-
-bool EndsWith(std::string const & s1, std::string const & s2)
-{
-  return s1.size() >= s2.size() && s1.compare(s1.size() - s2.size(), s2.size(), s2) == 0;
-}
-
 bool EatPrefix(std::string & s, std::string const & prefix)
 {
-  if (!StartsWith(s, prefix))
+  if (!s.starts_with(prefix))
     return false;
 
   CHECK_LESS_OR_EQUAL(prefix.size(), s.size(), ());
@@ -364,7 +359,7 @@ bool EatPrefix(std::string & s, std::string const & prefix)
 
 bool EatSuffix(std::string & s, std::string const & suffix)
 {
-  if (!EndsWith(s, suffix))
+  if (!s.ends_with(suffix))
     return false;
 
   CHECK_LESS_OR_EQUAL(suffix.size(), s.size(), ());
@@ -410,7 +405,7 @@ std::string to_string_dac(double d, int dac)
 
 bool IsHTML(std::string const & utf8)
 {
-  std::string::const_iterator it = utf8.begin();
+  auto it = utf8.begin();
   size_t ltCount = 0;
   size_t gtCount = 0;
   while (it != utf8.end())
@@ -426,8 +421,7 @@ bool IsHTML(std::string const & utf8)
 
 bool AlmostEqual(std::string const & str1, std::string const & str2, size_t mismatchedCount)
 {
-  std::pair<std::string::const_iterator, std::string::const_iterator> mis(str1.begin(),
-                                                                          str2.begin());
+  std::pair mis(str1.begin(), str2.begin());
   auto const str1End = str1.end();
   auto const str2End = str2.end();
 
@@ -453,7 +447,7 @@ void ParseCSVRow(std::string const & s, char const delimiter, std::vector<std::s
   for (; it; ++it)
   {
     std::string column(*it);
-    strings::Trim(column);
+    Trim(column);
     target.push_back(std::move(column));
   }
 

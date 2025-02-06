@@ -122,9 +122,9 @@ public:
   bool IsStreet() const;
 
   StoredRankingInfo const & GetRankingInfo() const { return m_info; }
-  void SetRankingInfo(RankingInfo const & info)
+  void SetRankingInfo(RankingInfo const & info, bool viewportMode)
   {
-    m_finalRank = info.GetLinearModelRank();
+    m_finalRank = info.GetLinearModelRank(viewportMode);
     m_info = info;
   }
 
@@ -192,5 +192,5 @@ private:
 #endif
 };
 
-void FillDetails(FeatureType & ft, Result::Details & meta);
+void FillDetails(FeatureType & ft, std::string const & name, Result::Details & details);
 }  // namespace search

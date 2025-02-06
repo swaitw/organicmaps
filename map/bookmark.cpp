@@ -22,7 +22,7 @@ std::string GetBookmarkIconType(kml::BookmarkIcon const & icon)
   case kml::BookmarkIcon::Christianity: return "christianity";
   case kml::BookmarkIcon::Entertainment: return "entertainment";
   case kml::BookmarkIcon::Exchange: return "exchange";
-  case kml::BookmarkIcon::Food: return "food";
+  case kml::BookmarkIcon::Food: return "restaurant";
   case kml::BookmarkIcon::Gas: return "gas";
   case kml::BookmarkIcon::Judaism: return "judaism";
   case kml::BookmarkIcon::Medicine: return "medicine";
@@ -39,8 +39,14 @@ std::string GetBookmarkIconType(kml::BookmarkIcon const & icon)
   case kml::BookmarkIcon::Transport: return "transport";
   case kml::BookmarkIcon::Viewpoint: return "viewpoint";
   case kml::BookmarkIcon::Sport: return "sport";
-  case kml::BookmarkIcon::Start: return "start";
-  case kml::BookmarkIcon::Finish: return "finish";
+  case kml::BookmarkIcon::Pub: return "pub";
+  case kml::BookmarkIcon::Art: return "art";
+  case kml::BookmarkIcon::Bank: return "bank";
+  case kml::BookmarkIcon::Cafe: return "cafe";
+  case kml::BookmarkIcon::Pharmacy: return "pharmacy";
+  case kml::BookmarkIcon::Stadium: return "stadium";
+  case kml::BookmarkIcon::Theatre: return "theatre";
+  case kml::BookmarkIcon::Information: return "information";
   case kml::BookmarkIcon::Count:
     ASSERT(false, ("Invalid bookmark icon type"));
     return {};
@@ -284,7 +290,8 @@ bool Bookmark::CanFillPlacePageMetadata() const
 
 void Bookmark::Attach(kml::MarkGroupId groupId)
 {
-  ASSERT(m_groupId == kml::kInvalidMarkGroupId, ());
+  ASSERT_NOT_EQUAL(groupId, kml::kInvalidMarkGroupId, ());
+  ASSERT_EQUAL(m_groupId, kml::kInvalidMarkGroupId, ());
   m_groupId = groupId;
 }
 
@@ -324,13 +331,13 @@ void BookmarkCategory::SetIsVisible(bool isVisible)
 
 void BookmarkCategory::SetName(std::string const & name)
 {
-  SetDirty();
+  SetDirty(true /* updateModificationTime */);
   kml::SetDefaultStr(m_data.m_name, name);
 }
 
 void BookmarkCategory::SetDescription(std::string const & desc)
 {
-  SetDirty();
+  SetDirty(true /* updateModificationTime */);
   kml::SetDefaultStr(m_data.m_description, desc);
 }
 
@@ -339,7 +346,7 @@ void BookmarkCategory::SetServerId(std::string const & serverId)
   if (m_serverId == serverId)
     return;
 
-  SetDirty();
+  SetDirty(true /* updateModificationTime */);
   m_serverId = serverId;
 }
 
@@ -348,7 +355,7 @@ void BookmarkCategory::SetTags(std::vector<std::string> const & tags)
   if (m_data.m_tags == tags)
     return;
 
-  SetDirty();
+  SetDirty(true /* updateModificationTime */);
   m_data.m_tags = tags;
 }
 
@@ -358,7 +365,7 @@ void BookmarkCategory::SetCustomProperty(std::string const & key, std::string co
   if (it != m_data.m_properties.end() && it->second == value)
     return;
 
-  SetDirty();
+  SetDirty(true /* updateModificationTime */);
   m_data.m_properties[key] = value;
 }
 
@@ -378,7 +385,7 @@ void BookmarkCategory::SetAuthor(std::string const & name, std::string const & i
   if (m_data.m_authorName == name && m_data.m_authorId == id)
     return;
 
-  SetDirty();
+  SetDirty(true /* updateModificationTime */);
   m_data.m_authorName = name;
   m_data.m_authorId = id;
 }
@@ -388,7 +395,7 @@ void BookmarkCategory::SetAccessRules(kml::AccessRules accessRules)
   if (m_data.m_accessRules == accessRules)
     return;
 
-  SetDirty();
+  SetDirty(true /* updateModificationTime */);
   m_data.m_accessRules = accessRules;
 }
 
@@ -398,8 +405,9 @@ kml::PredefinedColor BookmarkCategory::GetDefaultColor()
   return kml::PredefinedColor::Red;
 }
 
-void BookmarkCategory::SetDirty()
+void BookmarkCategory::SetDirty(bool updateModificationDate)
 {
-  Base::SetDirty();
-  m_data.m_lastModified = kml::TimestampClock::now();
+  Base::SetDirty(updateModificationDate);
+  if (updateModificationDate)
+    m_data.m_lastModified = kml::TimestampClock::now();
 }

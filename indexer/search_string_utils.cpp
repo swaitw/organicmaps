@@ -6,13 +6,13 @@
 
 #include "base/dfa_helpers.hpp"
 #include "base/mem_trie.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <algorithm>
-#include <memory>
 #include <queue>
 #include <vector>
 
-#include "3party/utfcpp/source/utf8/unchecked.h"
+#include <utf8/unchecked.h>
 
 namespace search
 {
@@ -27,15 +27,22 @@ std::vector<UniString> const kAllowedMisprints = {
     MakeUniString("gh"),
     MakeUniString("pf"),
     MakeUniString("vw"),
+
+    // Russian
     MakeUniString("ао"),
     MakeUniString("еиэ"),
     MakeUniString("шщ"),
+
+    // Spanish
+    MakeUniString("jh"),  // "Jose" <-> "Hose"
+    MakeUniString("fh"),  // "Hernández" <-> "Fernández"
 };
 
 std::pair<UniString, UniString> const kPreprocessReplacements[] = {
     {MakeUniString("пр-т"),  MakeUniString("проспект")},
     {MakeUniString("пр-д"),  MakeUniString("проезд")},
-    {MakeUniString("наб-я"), MakeUniString("набережная")}
+    {MakeUniString("наб-я"), MakeUniString("набережная")},
+    {MakeUniString("м-н"), MakeUniString("микрорайон")},
 };
 
 
@@ -124,6 +131,10 @@ UniString NormalizeAndSimplifyString(std::string_view s)
       c = 'a';
       uniString.insert(uniString.begin() + (i++) + 1, 'e');
       break;
+    case 0x2018:  // ‘
+    case 0x2019:  // ’
+      c = '\'';
+      break;
     case 0x2116:  // №
       c = '#';
       break;
@@ -143,10 +154,10 @@ UniString NormalizeAndSimplifyString(std::string_view s)
   });
 
   // Replace sequence of spaces with single one.
-  uniString.erase(std::unique(uniString.begin(), uniString.end(), [](UniChar l, UniChar r)
+  base::Unique(uniString, [](UniChar l, UniChar r)
   {
     return (l == r && l == ' ');
-  }), uniString.end());
+  });
 
   return uniString;
 
@@ -319,13 +330,13 @@ private:
     char const * affics[] =
     {
       // Russian - Русский
-      "улица", "ул",
+      "улица", "ул", "проспект",
 
       // English - English
       "street", "st", "road", "rd", "drive", "dr", "lane", "ln", "avenue", "av", "ave",
 
       // Belarusian - Беларуская мова
-      "вуліца", "вул",
+      "вуліца", "вул", "праспект",
 
       // Arabic
       "شارع",
@@ -334,19 +345,19 @@ private:
       "փողոց",
 
       // Catalan language (Barcelona, Valencia, ...)
-      "carrer",
+      "carrer", "avinguda",
 
       // Croatian - Hrvatski
       "ulica",  // Also common used transcription from RU
 
       // French - Français
-      "rue",
+      "rue", "avenue",
 
       // Georgia
       "ქუჩა",
 
       // German - Deutsch
-      "straße", "str",
+      "straße", "str", "platz", "pl",
 
       // Hungarian - Magyar
       "utca", "út",
@@ -355,7 +366,7 @@ private:
       "jalan",
 
       // Italian - Italiano
-      "via",
+      "via", "viale", "piazza",
 
       /// @todo Also expect that this synonyms should be in categories.txt list, but we dont support lt, lv langs now.
       /// @{
@@ -372,13 +383,13 @@ private:
       "strada",
 
       // Spanish - Español
-      "calle", "avenida",
+      "calle", "avenida", "plaza",
 
       // Turkish - Türkçe
       "sokağı", "sokak", "sk",
 
       // Ukrainian - Українська
-      "вулиця", "вул",
+      "вулиця", "вул", "проспект",
 
       // Vietnamese - Tiếng Việt
       "đường",
@@ -390,6 +401,73 @@ private:
 
   Trie m_strings;
 };
+
+class SynonymsHolderBase
+{
+  std::vector<UniString> m_strings;
+
+protected:
+  void Add(char const * s)
+  {
+    m_strings.emplace_back(NormalizeAndSimplifyString(s));
+  }
+
+public:
+  template <class FnT> bool ApplyIf(UniString const & s, FnT && fn) const
+  {
+    for (size_t i = 0; i < m_strings.size(); ++i)
+    {
+      if (m_strings[i] == s)
+      {
+        // Emit next full name.
+        fn(m_strings[i % 2 == 0 ? i + 1 : i]);
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
+class StreetsDirectionsHolder : public SynonymsHolderBase
+{
+public:
+  StreetsDirectionsHolder()
+  {
+    // ("short name", "full name")
+    for (auto const * s : {"n", "north", "s", "south", "w", "west", "e", "east",
+                           "ne", "northeast", "nw", "northwest", "se", "southeast", "sw", "southwest" })
+    {
+      Add(s);
+    }
+  }
+};
+
+class StreetsAbbreviationsHolder : public SynonymsHolderBase
+{
+public:
+  StreetsAbbreviationsHolder()
+  {
+    // ("short name", "full name")
+    for (auto const * s : {"st", "street", "rd", "road", "dr", "drive", "ln", "lane", "av", "avenue", "ave", "avenue",
+                           "hwy", "highway", "rte", "route", "blvd", "boulevard", "trl", "trail", "pl", "place",
+                           "rdg", "ridge", "spr", "spur", "ter", "terrace", "vw", "view", "cir", "circle", "ct", "court",
+                           "pkwy", "parkway", "lp", "loop", "vis", "vista", "cv", "cove", "trce", "trace", "crst", "crest",
+                           "cres", "crescent", "xing", "crossing", "blf", "bluff",
+                          // Some fancy synonyms:
+                           "co", "county", "mtn", "mountain", "clfs", "cliffs",
+                          // Integers:
+                           "first", "1st", "second", "2nd", "third", "3rd", "fourth", "4th", "fifth", "5th",
+                           "sixth", "6th", "seventh", "7th", "eighth", "8th", "ninth", "9th"})
+    {
+      Add(s);
+    }
+  }
+};
+
+void EraseDummyStreetChars(UniString & s)
+{
+  s.erase_if([](UniChar c) { return c == '\''; });
+}
 
 }  // namespace
 
@@ -419,15 +497,50 @@ UniString GetStreetNameAsKey(std::string_view name, bool ignoreStreetSynonyms)
   if (name.empty())
     return UniString();
 
-  UniString res;
+  static StreetsDirectionsHolder s_directions;
+  auto const & synonyms = StreetsSynonymsHolder::Instance();
+
+  UniString res, suffix;
   Tokenize(name, kStreetTokensSeparator, [&](std::string_view v)
   {
-    UniString const s = NormalizeAndSimplifyString(v);
-    if (!ignoreStreetSynonyms || !IsStreetSynonym(s))
-      res.append(s);
+    UniString s = NormalizeAndSimplifyString(v);
+
+    if (ignoreStreetSynonyms && synonyms.FullMatch(s))
+      return;
+
+    if (s_directions.ApplyIf(s, [&suffix](UniString const & s) { suffix.append(s); }))
+      return;
+
+    EraseDummyStreetChars(s);
+    res.append(s);
   });
 
+  res.append(suffix);
   return (res.empty() ? NormalizeAndSimplifyString(name) : res);
+}
+
+strings::UniString GetNormalizedStreetName(std::string_view name)
+{
+  static StreetsDirectionsHolder s_directions;
+  static StreetsAbbreviationsHolder s_abbrev;
+
+  UniString res, abbrev, dir;
+  Tokenize(name, kStreetTokensSeparator, [&](std::string_view v)
+  {
+    UniString s = NormalizeAndSimplifyString(v);
+
+    if (s_abbrev.ApplyIf(s, [&abbrev](UniString const & s) { abbrev.append(s); }))
+      return;
+    if (s_directions.ApplyIf(s, [&dir](UniString const & s) { dir.append(s); }))
+      return;
+
+    EraseDummyStreetChars(s);
+    res.append(s);
+  });
+
+  res.append(abbrev);
+  res.append(dir);
+  return res;
 }
 
 bool IsStreetSynonym(UniString const & s) { return StreetsSynonymsHolder::Instance().FullMatch(s); }
@@ -488,4 +601,14 @@ void StreetTokensFilter::Put(UniString const & token, bool isPrefix, size_t tag)
 
   m_callback(token, tag);
 }
+
+String2StringMap const & GetDACHStreets()
+{
+  static String2StringMap res = {
+    { MakeUniString("strasse"), MakeUniString("str") },
+    { MakeUniString("platz"), MakeUniString("pl") },
+  };
+  return res;
+}
+
 }  // namespace search

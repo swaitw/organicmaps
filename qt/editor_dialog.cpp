@@ -1,6 +1,7 @@
 #include "qt/editor_dialog.hpp"
 
 #include "indexer/editable_map_object.hpp"
+#include "indexer/feature_utils.hpp"
 
 #include "base/string_utils.hpp"
 
@@ -56,10 +57,11 @@ EditorDialog::EditorDialog(QWidget * parent, osm::EditableMapObject & emo)
     int namesRow = 0;
     for (auto const & ln : emo.GetNamesDataSource().names)
     {
-      namesGrid->addWidget(new QLabel(ln.m_lang), namesRow, 0);
+      namesGrid->addWidget(new QLabel(QString::fromUtf8(ln.m_lang.data(), ln.m_lang.size())), namesRow, 0);
       QLineEdit * lineEditName = new QLineEdit(QString::fromStdString(ln.m_name));
       lineEditName->setReadOnly(!emo.IsNameEditable());
-      lineEditName->setObjectName(StringUtf8Multilang::GetLangByCode(ln.m_code));
+      std::string_view const code = StringUtf8Multilang::GetLangByCode(ln.m_code);
+      lineEditName->setObjectName(QString::fromUtf8(code.data(), code.size()));
       namesGrid->addWidget(lineEditName, namesRow++, 1);
     }
 
@@ -112,12 +114,12 @@ EditorDialog::EditorDialog(QWidget * parent, osm::EditableMapObject & emo)
       {
         grid->addWidget(new QLabel(kInternetObjectName), row, 0);
         QComboBox * cmb = new QComboBox();
-        std::string const values[] = {DebugPrint(osm::Internet::Unknown),
-                                      DebugPrint(osm::Internet::Wlan),
-                                      DebugPrint(osm::Internet::Wired),
-                                      DebugPrint(osm::Internet::Terminal),
-                                      DebugPrint(osm::Internet::Yes),
-                                      DebugPrint(osm::Internet::No)};
+        std::string const values[] = {DebugPrint(feature::Internet::Unknown),
+                                      DebugPrint(feature::Internet::Wlan),
+                                      DebugPrint(feature::Internet::Wired),
+                                      DebugPrint(feature::Internet::Terminal),
+                                      DebugPrint(feature::Internet::Yes),
+                                      DebugPrint(feature::Internet::No)};
         for (auto const & v : values)
           cmb->addItem(v.c_str());
         cmb->setCurrentText(DebugPrint(emo.GetInternet()).c_str());
@@ -171,7 +173,8 @@ void EditorDialog::OnSave()
     for (int8_t langCode = StringUtf8Multilang::kDefaultCode;
          langCode < StringUtf8Multilang::kMaxSupportedLanguages; ++langCode)
     {
-      QLineEdit * le = findChild<QLineEdit *>(StringUtf8Multilang::GetLangByCode(langCode));
+      std::string_view const lang = StringUtf8Multilang::GetLangByCode(langCode);
+      QLineEdit * le = findChild<QLineEdit *>(QString::fromUtf8(lang.data(), lang.size()));
       if (!le)
         continue;
 
@@ -190,12 +193,7 @@ void EditorDialog::OnSave()
   {
     m_feature.SetHouseNumber(findChild<QLineEdit *>(kHouseNumberObjectName)->text().toStdString());
     QString const editedStreet = findChild<QComboBox *>(kStreetObjectName)->currentText();
-    QStringList const names = editedStreet.split(" / ",
-#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
-        QString::SkipEmptyParts);
-#else
-        Qt::SkipEmptyParts);
-#endif
+    QStringList const names = editedStreet.split(" / ", Qt::SkipEmptyParts);
     QString const localized = names.size() > 1 ? names.at(1) : QString();
     if (!names.empty())
       m_feature.SetStreet({names.at(0).toStdString(), localized.toStdString()});
@@ -214,7 +212,7 @@ void EditorDialog::OnSave()
     if (prop == PropID::FMD_INTERNET)
     {
       QComboBox * cmb = findChild<QComboBox *>(kInternetObjectName);
-      m_feature.SetInternet(osm::InternetFromString(cmb->currentText().toStdString()));
+      m_feature.SetInternet(feature::InternetFromString(cmb->currentText().toStdString()));
       continue;
     }
     if (prop == PropID::FMD_POSTCODE) // already set above

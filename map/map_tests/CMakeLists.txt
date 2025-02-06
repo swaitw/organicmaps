@@ -17,9 +17,10 @@ set(SRC
   search_api_tests.cpp
   transliteration_test.cpp
   working_time_tests.cpp
+  elevation_info_tests.cpp
 )
 
-omim_add_test_with_qt_event_loop(${PROJECT_NAME} ${SRC})
+omim_add_test(${PROJECT_NAME} ${SRC} REQUIRE_QT REQUIRE_SERVER)
 
 target_link_libraries(${PROJECT_NAME}
   search_tests_support

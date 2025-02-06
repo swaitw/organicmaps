@@ -48,21 +48,20 @@ bool IsDownloaderFile(string const & name)
 
 bool IsDiffFile(string const & name)
 {
-  return strings::EndsWith(name, DIFF_FILE_EXTENSION) ||
-         strings::EndsWith(name, DIFF_APPLYING_FILE_EXTENSION);
+  return name.ends_with(DIFF_FILE_EXTENSION) || name.ends_with(DIFF_APPLYING_FILE_EXTENSION);
 }
 
 /*
 bool DirectoryHasIndexesOnly(string const & directory)
 {
   Platform::TFilesWithType fwts;
-  Platform::GetFilesByType(directory, Platform::FILE_TYPE_REGULAR | Platform::FILE_TYPE_DIRECTORY, fwts);
+  Platform::GetFilesByType(directory, Platform::EFileType::Regular | Platform::EFileType::Directory, fwts);
 
   for (auto const & fwt : fwts)
   {
     auto const & name = fwt.first;
     auto const & type = fwt.second;
-    if (type == Platform::FILE_TYPE_DIRECTORY)
+    if (type == Platform::EFileType::Directory)
     {
       if (!IsSpecialName(name))
         return false;
@@ -86,15 +85,14 @@ void FindAllDiffsInDirectory(string const & dir, vector<LocalCountryFile> & diff
   Platform & platform = GetPlatform();
 
   Platform::TFilesWithType files;
-  platform.GetFilesByType(dir, Platform::FILE_TYPE_REGULAR, files);
+  platform.GetFilesByType(dir, Platform::EFileType::Regular, files);
 
   for (auto const & fileWithType : files)
   {
     string name = fileWithType.first;
 
-    auto const isDiffReady =
-        strings::EndsWith(name, strings::to_string(DIFF_FILE_EXTENSION) + READY_FILE_EXTENSION);
-    auto const isDiff = strings::EndsWith(name, DIFF_FILE_EXTENSION);
+    auto const isDiffReady = name.ends_with(DIFF_FILE_EXTENSION READY_FILE_EXTENSION);
+    auto const isDiff = name.ends_with(DIFF_FILE_EXTENSION);
 
     if (!isDiff && !isDiffReady)
       continue;
@@ -129,7 +127,7 @@ void DeleteDownloaderFilesForCountry(int64_t version, string const & dataDir,
   {
     string const path = GetFileDownloadPath(version, dataDir, countryFile,
                                             static_cast<MapFileType>(type));
-    ASSERT(strings::EndsWith(path, READY_FILE_EXTENSION), ());
+    ASSERT(path.ends_with(READY_FILE_EXTENSION), ());
     Platform::RemoveFileIfExists(path);
     Platform::RemoveFileIfExists(path + RESUME_FILE_EXTENSION);
     Platform::RemoveFileIfExists(path + DOWNLOADING_FILE_EXTENSION);
@@ -150,11 +148,11 @@ size_t FindAllLocalMapsInDirectoryAndCleanup(string const & directory, int64_t v
   size_t const szBefore = localFiles.size();
 
   Platform::TFilesWithType fwts;
-  platform.GetFilesByType(directory, Platform::FILE_TYPE_REGULAR | Platform::FILE_TYPE_DIRECTORY, fwts);
+  platform.GetFilesByType(directory, Platform::EFileType::Regular | Platform::EFileType::Directory, fwts);
 
   for (auto const & fwt : fwts)
   {
-    if (fwt.second != Platform::FILE_TYPE_REGULAR)
+    if (fwt.second != Platform::EFileType::Regular)
       continue;
 
     string name = fwt.first;
@@ -166,7 +164,7 @@ size_t FindAllLocalMapsInDirectoryAndCleanup(string const & directory, int64_t v
       continue;
     }
 
-    if (!strings::EndsWith(name, DATA_FILE_EXTENSION))
+    if (!name.ends_with(DATA_FILE_EXTENSION))
       continue;
 
     // Remove DATA_FILE_EXTENSION and use base name as a country file name.
@@ -180,7 +178,7 @@ size_t FindAllLocalMapsInDirectoryAndCleanup(string const & directory, int64_t v
   /*
   for (auto const & fwt : fwts)
   {
-    if (fwt.second != Platform::FILE_TYPE_DIRECTORY)
+    if (fwt.second != Platform::EFileType::Directory)
       continue;
 
     string const & name = fwt.first;
@@ -203,7 +201,7 @@ void FindAllDiffs(string const & dataDir, vector<LocalCountryFile> & diffs)
   FindAllDiffsInDirectory(dir, diffs);
 
   Platform::TFilesWithType fwts;
-  Platform::GetFilesByType(dir, Platform::FILE_TYPE_DIRECTORY, fwts);
+  Platform::GetFilesByType(dir, Platform::EFileType::Directory, fwts);
 
   for (auto const & fwt : fwts)
     FindAllDiffsInDirectory(base::JoinPath(dir, fwt.first /* subdir */), diffs);
@@ -223,7 +221,7 @@ void FindAllLocalMapsAndCleanup(int64_t latestVersion, string const & dataDir,
   //FindAllLocalMapsInDirectoryAndCleanup(dir, 0 /* version */, latestVersion, localFiles);
 
   Platform::TFilesWithType fwts;
-  Platform::GetFilesByType(dir, Platform::FILE_TYPE_DIRECTORY, fwts);
+  Platform::GetFilesByType(dir, Platform::EFileType::Directory, fwts);
   for (auto const & fwt : fwts)
   {
     string const & subdir = fwt.first;
@@ -397,8 +395,8 @@ void CountryIndexes::GetIndexesExts(vector<string> & exts)
 // static
 bool CountryIndexes::IsIndexFile(string const & file)
 {
-  return strings::EndsWith(file, kBitsExt) || strings::EndsWith(file, kNodesExt) ||
-         strings::EndsWith(file, kOffsetsExt);
+  return file.ends_with(kBitsExt) || file.ends_with(kNodesExt) ||
+         file.ends_with(kOffsetsExt);
 }
 
 // static

@@ -8,7 +8,6 @@
 #include "coding/geometry_coding.hpp"
 #include "coding/read_write_utils.hpp"
 
-#include "geometry/latlon.hpp"
 #include "geometry/mercator.hpp"
 #include "geometry/region2d.hpp"
 
@@ -187,7 +186,7 @@ void CountryInfoGetter::ForEachCountry(std::string const & prefix, ToDo && toDo)
 {
   for (auto const & country : m_countries)
   {
-    if (strings::StartsWith(country.m_countryId, prefix.c_str()))
+    if (country.m_countryId.starts_with(prefix))
       toDo(country);
   }
 }
@@ -254,8 +253,8 @@ void CountryInfoReader::ClearCachesImpl() const
 }
 
 template <typename Fn>
-std::result_of_t<Fn(std::vector<m2::RegionD>)> CountryInfoReader::WithRegion(size_t id,
-                                                                             Fn && fn) const
+std::invoke_result_t<Fn, std::vector<m2::RegionD>> CountryInfoReader::WithRegion(size_t id,
+                                                                                 Fn && fn) const
 {
   std::lock_guard<std::mutex> lock(m_cacheMutex);
 

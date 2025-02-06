@@ -22,7 +22,20 @@ extern "C" {
 #include <dlfcn.h>
 
 int InitVulkan(void) {
-    void* libvulkan = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+#if defined(__APPLE__)
+    void* libvulkan = dlopen("libvulkan.dylib", RTLD_NOW | RTLD_LOCAL);
+    if (!libvulkan) {
+        libvulkan = dlopen("libvulkan.1.dylib", RTLD_NOW | RTLD_LOCAL);
+    }
+    if (!libvulkan) {
+        libvulkan = dlopen("libMoltenVK.dylib", RTLD_NOW | RTLD_LOCAL);
+    }
+#else
+    void* libvulkan = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!libvulkan) {
+        libvulkan = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+    }
+#endif
     if (!libvulkan) return 0;
 
     // Vulkan supported, set function addresses
@@ -545,6 +558,10 @@ int InitVulkan(void) {
     vkDestroyDebugReportCallbackEXT = reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(dlsym(libvulkan, "vkDestroyDebugReportCallbackEXT"));
     vkDebugReportMessageEXT = reinterpret_cast<PFN_vkDebugReportMessageEXT>(dlsym(libvulkan, "vkDebugReportMessageEXT"));
 
+#if defined(__APPLE__)
+    vkCreateMacOSSurfaceMVK = reinterpret_cast<PFN_vkCreateMacOSSurfaceMVK>(dlsym(libvulkan, "vkCreateMacOSSurfaceMVK"));
+#endif
+
     return 1;
 }
 
@@ -961,8 +978,10 @@ PFN_vkDestroyPrivateDataSlotEXT vkDestroyPrivateDataSlotEXT;
 PFN_vkSetPrivateDataEXT vkSetPrivateDataEXT;
 PFN_vkGetPrivateDataEXT vkGetPrivateDataEXT;
 PFN_vkCmdSetFragmentShadingRateEnumNV vkCmdSetFragmentShadingRateEnumNV;
-PFN_vkAcquireWinrtDisplayNV vkAcquireWinrtDisplayNV;
-PFN_vkGetWinrtDisplayNV vkGetWinrtDisplayNV;
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+	PFN_vkAcquireWinrtDisplayNV vkAcquireWinrtDisplayNV;
+	PFN_vkGetWinrtDisplayNV vkGetWinrtDisplayNV;
+#endif
 PFN_vkCmdSetVertexInputEXT vkCmdSetVertexInputEXT;
 PFN_vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI vkGetDeviceSubpassShadingMaxWorkgroupSizeHUAWEI;
 PFN_vkCmdSubpassShadingHUAWEI vkCmdSubpassShadingHUAWEI;
@@ -1133,6 +1152,10 @@ PFN_vkCmdDecodeVideoKHR vkCmdDecodeVideoKHR;
 
 #ifdef VK_ENABLE_BETA_EXTENSIONS
 PFN_vkCmdEncodeVideoKHR vkCmdEncodeVideoKHR;
+#endif
+
+#if defined(__APPLE__)
+PFN_vkCreateMacOSSurfaceMVK vkCreateMacOSSurfaceMVK;
 #endif
 
 #ifdef __cplusplus

@@ -8,9 +8,6 @@
 #include <QtCore/QString>
 #include <QtCore/QHash>
 
-#include <QtXml/QXmlSimpleReader>
-#include <QtXml/QXmlInputSource>
-
 #include <gflags/gflags.h>
 
 DEFINE_string(fontFileName, "../../data/01_dejavusans.ttf", "path to TrueType font file");
@@ -22,22 +19,16 @@ DEFINE_string(skinName, "../../data/basic", "prefix for the skin and skinImage f
 DEFINE_string(skinSuffix, "mdpi", "suffix for skinName<suffix>.skn and symbols<suffix>.png");
 DEFINE_int32(searchIconWidth, 24, "width of the search category icon");
 DEFINE_int32(searchIconHeight, 24, "height of the search category icon");
-DEFINE_int32(maxSize, 2048, "max width/height of output textures");
+DEFINE_int32(maxSize, 4096, "max width/height of output textures");
 
 int main(int argc, char *argv[])
 {
 // Used to lock the hash seed, so the order of XML attributes is always the same.
-#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
-  qSetGlobalQHashSeed(0);
-#else
-  qputenv("QT_HASH_SEED", "0");
-#endif
+  QHashSeed::setDeterministicGlobalSeed();
   try
   {
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     QApplication app(argc, argv);
-    // Pretty icons on HDPI displays.
-    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 
     tools::SkinGenerator gen;
 

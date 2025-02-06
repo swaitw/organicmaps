@@ -31,7 +31,7 @@ UNIT_TEST(Russia_Moscow_NagatinoUturn_TurnTest)
       .TestValid()
       .TestDirection(CarDirection::UTurnLeft);
 
-  integration::TestRouteLength(route, 248.0);
+  integration::TestRouteLength(route, 251.3);
 }
 
 // Secondary should be preferred against residential.
@@ -177,14 +177,17 @@ UNIT_TEST(Russia_Moscow_NoTurnsOnMKAD_TurnTest)
   RouterResultCode const result = routeResult.second;
 
   TEST_EQUAL(result, RouterResultCode::NoError, ());
-  integration::TestTurnCount(route, 2 /* expectedTurnCount */);
+  integration::TestTurnCount(route, 3 /* expectedTurnCount */);
+  /// @todo 0-turn is dummy, https://www.openstreetmap.org/note/3937098
   integration::GetNthTurn(route, 1)
       .TestValid()
-      /// @todo Update with actual point later. Looks like there is a construction on that junction now.
-      //.TestPoint({37.68276, 67.14062})
+      .TestPoint(mercator::FromLatLon(55.5730008, 37.6792393))
       .TestDirection(CarDirection::ExitHighwayToRight);
+  integration::GetNthTurn(route, 2)
+      .TestValid()
+      .TestDirection(CarDirection::TurnSlightRight);
 
-  integration::TestRouteLength(route, 43233.7);
+  integration::TestRouteLength(route, 43228);
 }
 
 UNIT_TEST(Russia_Moscow_TTKVarshavskoeShosseOut_TurnTest)
@@ -778,7 +781,7 @@ UNIT_TEST(England_London_ExitToLeft_TurnTest)
 
   Route const & route = *routeResult.first;
   RouterResultCode const result = routeResult.second;
-  /// @note Important test since different mwms for one segment are used and this can cause extra GoStraight.
+  /// @todo Important test since different mwms for one segment are used and this can cause extra GoStraight.
   TEST_EQUAL(result, RouterResultCode::NoError, ());
   integration::TestTurnCount(route, 1 /* expectedTurnCount */);
   integration::GetNthTurn(route, 0).TestValid().TestDirection(CarDirection::ExitHighwayToLeft);
@@ -796,8 +799,10 @@ UNIT_TEST(Russia_Moscow_LeninskyProsp_TurnTest)
   RouterResultCode const result = routeResult.second;
 
   TEST_EQUAL(result, RouterResultCode::NoError, ());
-  integration::TestTurnCount(route, 1 /* expectedTurnCount */);
-  integration::GetNthTurn(route, 0).TestValid().TestDirection(CarDirection::ExitHighwayToRight);
+
+  /// @todo Temporary fix until the construction will be finished.
+  integration::TestTurnCount(route, 5 /* expectedTurnCount */);
+  //integration::GetNthTurn(route, 0).TestValid().TestDirection(CarDirection::ExitHighwayToRight);
 }
 
 // Test on the route from TTK (primary) to a link.
@@ -1021,12 +1026,11 @@ UNIT_TEST(Germany_ShuttleTrain2_TurnTest)
 
   // No turns on shutte train road.
   TEST_EQUAL(result, RouterResultCode::NoError, ());
-  integration::TestTurnCount(route, 5 /* expectedTurnCount */);
+  integration::TestTurnCount(route, 4 /* expectedTurnCount */);
   integration::GetNthTurn(route, 0).TestValid().TestDirection(CarDirection::TurnSharpRight);
   integration::GetNthTurn(route, 1).TestValid().TestDirection(CarDirection::TurnLeft);
-  integration::GetNthTurn(route, 2).TestValid().TestDirection(CarDirection::TurnRight);
+  integration::GetNthTurn(route, 2).TestValid().TestDirection(CarDirection::TurnLeft);
   integration::GetNthTurn(route, 3).TestValid().TestDirection(CarDirection::TurnRight);
-  integration::GetNthTurn(route, 4).TestValid().TestDirection(CarDirection::TurnLeft);
 }
 
 UNIT_TEST(Cyprus_Nicosia_TurnTest)
@@ -1185,6 +1189,8 @@ UNIT_TEST(Russia_Moscow_OnlyUTurnTest1_TurnTest)
   RouterResultCode const result = routeResult.second;
 
   TEST_EQUAL(result, RouterResultCode::NoError, ());
+  integration::TestRouteLength(route, 2496.61);
+
   integration::TestTurnCount(route, 5 /* expectedTurnCount */);
   integration::GetNthTurn(route, 0).TestValid().TestDirection(CarDirection::TurnLeft);
   integration::GetNthTurn(route, 1).TestValid().TestDirection(CarDirection::TurnLeft);
@@ -1265,10 +1271,12 @@ UNIT_TEST(Cyprus_Governors_Beach_TurnTestNextRoad)
   TurnItem turn;
   route.GetNearestTurn(d, turn);
   TEST_EQUAL(turn.m_turn, CarDirection::ExitHighwayToLeft, ());
+
   RouteSegment::RoadNameInfo ri;
   route.GetNextTurnStreetName(ri);
   TEST_EQUAL(ri.m_destination, "Governer's Beach; Pentakomo", ());
-  TEST_EQUAL(ri.m_destination_ref, "B1", ());
+  // Aggregated network/ref tags.
+  TEST_EQUAL(ri.m_destination_ref, "CY:B/B1", ());
 }
 
 // Exit which is marked as non-link, but has link tags m_destination_ref and m_destination.
@@ -1292,6 +1300,20 @@ UNIT_TEST(Cyprus_A1_A5_TurnTestNextRoad)
   route.GetNextTurnStreetName(ri);
   TEST_EQUAL(ri.m_destination, "Larnaka; Kefinou; Airport", ());
   TEST_EQUAL(ri.m_destination_ref, "A5", ());
+}
+
+UNIT_TEST(Zurich_UseMainTurn)
+{
+  TRouteResult const routeResult =
+      integration::CalculateRoute(integration::GetVehicleComponents(VehicleType::Car),
+                                  mercator::FromLatLon(47.364832, 8.5656975), {0., 0.},
+                                  mercator::FromLatLon(47.3640678, 8.56567312));
+
+  Route const & route = *routeResult.first;
+  RouterResultCode const result = routeResult.second;
+  TEST_EQUAL(result, RouterResultCode::NoError, ());
+  integration::TestTurnCount(route, 1);
+  integration::TestRouteLength(route, 135.573);
 }
 
 namespace
@@ -1369,4 +1391,23 @@ UNIT_TEST(Israel_KeepMotorway)
   TestNoTurns(arr);
 }
 /// @}
+
+// https://github.com/organicmaps/organicmaps/issues/5468
+UNIT_TEST(UK_Junction_Circular)
+{
+  using namespace integration;
+  TRouteResult const routeResult = CalculateRoute(GetVehicleComponents(VehicleType::Car),
+                                                  mercator::FromLatLon(53.53692, -2.28832), {0., 0.},
+                                                  mercator::FromLatLon(53.54025, -2.28701));
+
+  Route const & route = *routeResult.first;
+  RouterResultCode const result = routeResult.second;
+  TEST_EQUAL(result, RouterResultCode::NoError, ());
+  TestRouteLength(route, 548.17);
+
+  TestTurnCount(route, 2);
+  GetNthTurn(route, 0).TestValid().TestDirection(CarDirection::EnterRoundAbout).TestRoundAboutExitNum(3);
+  GetNthTurn(route, 1).TestValid().TestDirection(CarDirection::LeaveRoundAbout);
+}
+
 } // namespace turn_test

@@ -233,7 +233,7 @@ UNIT_TEST(Transit_GTFS_ProjectStopToLine_Simple)
 
   // Test point_C projection in backward direction.
   TEST_EQUAL(ResT(5, false),
-               PrepareNearestPointOnTrack(point_C, std::nullopt, shape.size() /* prevIndex */,
+               PrepareNearestPointOnTrack(point_C, std::nullopt, shape.size() - 1 /* prevIndex */,
                                           Direction::Backward, shape), ());
 
   // Test point_B projection in backward direction.
@@ -311,25 +311,25 @@ UNIT_TEST(Transit_GTFS_ProjectStopToLine_MaxDistance)
                                           Direction::Forward, shape), ());
 }
 
-// Complex shape with multiple points on it and multiple stops for projection.
-//
-//                   +-----+
-//              C*  /       \
-//          /+\    /         \  *D
-//       + /    \+/           \
-//      /                     +
-//     /                      |       *E
-//    +                       +-----+
-//    |                             |
-//    |                             |
-//    +---+\                  +-----+
-//          \                 |
-//       B*  +                |
-//       A*   \     +---------+
-//             +    |
-//             |    +
-//             +         *F
-//
+/* Complex shape with multiple points on it and multiple stops for projection.
+ *
+ *                   +-----+
+ *              C*  /       \
+ *          /+\    /         \  *D
+ *       + /    \+/           \
+ *      /                     +
+ *     /                      |       *E
+ *    +                       +-----+
+ *    |                             |
+ *    |                             |
+ *    +---+\                  +-----+
+ *          \                 |
+ *       B*  +                |
+ *       A*   \     +---------+
+ *             +    |
+ *             |    +
+ *             +         *F
+ */
 UNIT_TEST(Transit_GTFS_ProjectStopToLine_NearCircle)
 {
   // index, was inserted
@@ -384,7 +384,7 @@ UNIT_TEST(Transit_GTFS_ProjectStopToLine_NearCircle)
   shape = initialShape;
   reverse(shape.begin(), shape.end());
   TEST_EQUAL(ResT(17, true),
-               PrepareNearestPointOnTrack(point_A, std::nullopt, shape.size() /* prevIndex */,
+               PrepareNearestPointOnTrack(point_A, std::nullopt, shape.size() - 1/* prevIndex */,
                                           Direction::Backward, shape), ());
   TEST(base::AlmostEqualAbs(coordA, shape[17], kEps), (coordA, shape[17]));
 

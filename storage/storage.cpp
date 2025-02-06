@@ -14,7 +14,6 @@
 #include "platform/preferred_languages.hpp"
 #include "platform/settings.hpp"
 
-#include "coding/file_reader.hpp"
 #include "coding/file_writer.hpp"
 #include "coding/internal/file_data.hpp"
 #include "coding/sha1.hpp"
@@ -24,6 +23,7 @@
 #include "base/logging.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
+#include "base/timer.hpp"
 
 #include "defines.hpp"
 
@@ -42,6 +42,16 @@ using namespace std;
 namespace
 {
 string const kDownloadQueueKey = "DownloadQueue";
+
+
+// Editing maps older than approximately three months old is disabled, since the data
+// is most likely already fixed on OSM. Not limited to the latest one or two versions,
+// because a user can forget to update maps after a new app version has been installed
+// automatically in the background.
+uint64_t const kMaxSecondsTillLastVersionUpdate = 3600 * 24 * 31 * 3;
+// Editing maps older than approximately six months old is disabled, because the device
+// may have been offline for a long time.
+uint64_t const kMaxSecondsTillNoEdits = 3600 * 24 * 31 * 6;
 
 void DeleteCountryIndexes(LocalCountryFile const & localFile)
 {
@@ -283,7 +293,8 @@ Storage::WorldStatus Storage::GetForceDownloadWorlds(std::vector<platform::Count
 
 void Storage::RegisterAllLocalMaps(bool enableDiffs /* = false */)
 {
-  CHECK_THREAD_CHECKER(m_threadChecker, ());
+  //CHECK_THREAD_CHECKER(m_threadChecker, ());
+  //ASSERT(!IsDownloadInProgress(), ());
 
   m_localFiles.clear();
   m_localFilesForFakeCountries.clear();
@@ -320,16 +331,11 @@ void Storage::RegisterAllLocalMaps(bool enableDiffs /* = false */)
   FindAllDiffs(m_dataDir, m_notAppliedDiffs);
   //if (enableDiffs)
   //  LoadDiffScheme();
-
-  // Note: call order is important, diffs loading must be called first.
-  // Since diffs info downloading and servers list downloading
-  // are working on network thread, consecutive executing is guaranteed.
-  RestoreDownloadQueue();
 }
 
 void Storage::GetLocalMaps(vector<LocalFilePtr> & maps) const
 {
-  CHECK_THREAD_CHECKER(m_threadChecker, ());
+  //CHECK_THREAD_CHECKER(m_threadChecker, ());
 
   for (auto const & p : m_localFiles)
     maps.push_back(GetLatestLocalFile(p.first));
@@ -424,7 +430,7 @@ LocalFilePtr Storage::GetLatestLocalFile(CountryFile const & countryFile) const
 
 LocalFilePtr Storage::GetLatestLocalFile(CountryId const & countryId) const
 {
-  CHECK_THREAD_CHECKER(m_threadChecker, ());
+  //CHECK_THREAD_CHECKER(m_threadChecker, ());
 
   auto const it = m_localFiles.find(countryId);
   if (it == m_localFiles.end() || it->second.empty())
@@ -928,7 +934,9 @@ void Storage::RegisterCountryFiles(LocalFilePtr localFile)
     if (existingFile->IsInBundle())
       *existingFile = *localFile;
     else
+    {
       ASSERT_EQUAL(localFile.get(), existingFile.get(), ());
+    }
   }
   else
     m_localFiles[countryId].push_front(localFile);
@@ -1259,17 +1267,33 @@ bool Storage::IsNodeDownloaded(CountryId const & countryId) const
 {
   CHECK_THREAD_CHECKER(m_threadChecker, ());
 
-  for (auto const & localeMap : m_localFiles)
-  {
-    if (countryId == localeMap.first)
-      return true;
-  }
-  return false;
+  auto const it = m_localFiles.find(countryId);
+  /// @todo IDK what is the logic here, but other functions also check on empty list.
+  return (it != m_localFiles.end() && !it->second.empty());
 }
 
 bool Storage::HasLatestVersion(CountryId const & countryId) const
 {
   return CountryStatusEx(countryId) == Status::OnDisk;
+}
+
+bool Storage::IsAllowedToEditVersion(CountryId const & countryId) const
+{
+  auto const status = CountryStatusEx(countryId);
+  switch (status)
+  {
+    case Status::OnDisk: return true;
+    case Status::OnDiskOutOfDate:
+    {
+      auto const localFile = GetLatestLocalFile(countryId);
+      ASSERT(localFile, ("Local file shouldn't be nullptr."));
+      auto const currentVersionTime = base::YYMMDDToSecondsSinceEpoch(static_cast<uint32_t>(m_currentVersion));
+      auto const localVersionTime = base::YYMMDDToSecondsSinceEpoch(static_cast<uint32_t>(localFile->GetVersion()));
+      return currentVersionTime - localVersionTime < kMaxSecondsTillLastVersionUpdate &&
+             base::SecondsSinceEpoch() - localVersionTime < kMaxSecondsTillNoEdits;
+    }
+    default: return false;
+  }
 }
 
 int64_t Storage::GetVersion(CountryId const & countryId) const
@@ -1323,10 +1347,11 @@ void Storage::DeleteNode(CountryId const & countryId)
   if (!node)
     return;
 
-  auto deleteAction = [this](CountryTree::Node const & descendantNode) {
-    bool onDisk = m_localFiles.find(descendantNode.Value().Name()) != m_localFiles.end();
+  auto const deleteAction = [this](CountryTree::Node const & descendantNode)
+  {
+    bool const onDisk = m_localFiles.find(descendantNode.Value().Name()) != m_localFiles.end();
     if (descendantNode.ChildrenCount() == 0 && onDisk)
-      this->DeleteCountry(descendantNode.Value().Name(), MapFileType::Map);
+      DeleteCountry(descendantNode.Value().Name(), MapFileType::Map);
   };
   node->ForEachInSubtree(deleteAction);
 }
@@ -1351,7 +1376,7 @@ bool Storage::IsCountryLeaf(CountryTree::Node const & node)
 
 bool Storage::IsWorldCountryID(CountryId const & country)
 {
-  return strings::StartsWith(country, WORLD_FILE_NAME);
+  return country.starts_with(WORLD_FILE_NAME);
 }
 
 /*
@@ -1757,7 +1782,8 @@ Progress Storage::CalculateProgress(CountriesVec const & descendants) const
 
 void Storage::UpdateNode(CountryId const & countryId)
 {
-  ForEachInSubtree(countryId, [this](CountryId const & descendantId, bool groupNode) {
+  ForEachInSubtree(countryId, [this](CountryId const & descendantId, bool groupNode)
+  {
     if (!groupNode && m_localFiles.find(descendantId) != m_localFiles.end())
       DownloadNode(descendantId, true /* isUpdate */);
   });

@@ -16,7 +16,7 @@ using namespace std;
 
 // RoutingOptions -------------------------------------------------------------------------------------
 
-string const RoutingOptions::kAvoidRoutingOptionSettingsForCar = "avoid_routing_options_car";
+std::string_view constexpr kAvoidRoutingOptionSettingsForCar = "avoid_routing_options_car";
 
 // static
 RoutingOptions RoutingOptions::LoadCarOptionsFromSettings()
@@ -155,11 +155,6 @@ RoutingOptionSetter::RoutingOptionSetter(RoutingOptions::RoadType roadsMask)
 {
   m_saved = RoutingOptions::LoadCarOptionsFromSettings();
   RoutingOptions::SaveCarOptionsToSettings(RoutingOptions(roadsMask));
-}
-
-RoutingOptionSetter::RoutingOptionSetter(RoutingOptions::Road road)
-  : RoutingOptionSetter(static_cast<RoutingOptions::RoadType>(road))
-{
 }
 
 RoutingOptionSetter::~RoutingOptionSetter()

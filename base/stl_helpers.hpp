@@ -1,14 +1,12 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <tuple>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
 namespace base
@@ -116,11 +114,17 @@ void SortUnique(Cont & c)
 
 /// @name Use std::ref to pass functors into std, since all algorithm functions here get forwarding reference.
 /// @{
+template <typename Cont, typename Equals>
+void Unique(Cont & c, Equals && equals)
+{
+  c.erase(std::unique(c.begin(), c.end(), std::ref(equals)), c.end());
+}
+
 template <typename Cont, typename Less, typename Equals>
 void SortUnique(Cont & c, Less && less, Equals && equals)
 {
   std::sort(c.begin(), c.end(), std::ref(less));
-  c.erase(std::unique(c.begin(), c.end(), std::ref(equals)), c.end());
+  Unique(c, equals);
 }
 
 template <typename Cont, typename Fn>
@@ -161,6 +165,18 @@ bool IsExist(Cont const & c, T const & t)
   return std::find(std::cbegin(c), end, t) != end;
 }
 
+template <class MapT, class K, class V>
+auto EmplaceOrAssign(MapT & theMap, K && k, V && v)
+{
+  auto it = theMap.lower_bound(k);
+  if (it != theMap.end() && k == it->first)
+  {
+    it->second = std::forward<V>(v);
+    return std::make_pair(it, false);
+  }
+  return std::make_pair(theMap.emplace_hint(it, std::forward<K>(k), std::forward<V>(v)), true);
+}
+
 // Creates a comparer being able to compare two instances of class C
 // (given by reference or pointer) by a field or const method of C.
 // For example, to create comparer that is able to compare pairs of
@@ -196,6 +212,13 @@ std::underlying_type_t<T> constexpr Underlying(T value)
   return static_cast<std::underlying_type_t<T>>(value);
 }
 
+// Short alias like Enum to Integral.
+template <typename T>
+std::underlying_type_t<T> constexpr E2I(T value)
+{
+  return Underlying(value);
+}
+
 // Use this if you want to make a functor whose first
 // argument is ignored and the rest are forwarded to |fn|.
 template <typename Fn>
@@ -206,7 +229,7 @@ public:
   explicit IgnoreFirstArgument(Gn && gn) : m_fn(std::forward<Gn>(gn)) {}
 
   template <typename Arg, typename... Args>
-  std::result_of_t<Fn(Args &&...)> operator()(Arg &&, Args &&... args)
+  std::invoke_result_t<Fn, Args&&...> operator()(Arg &&, Args &&... args)
   {
     return m_fn(std::forward<Args>(args)...);
   }
@@ -328,23 +351,6 @@ template <typename Iter>
 bool IsSortedAndUnique(Iter beg, Iter end)
 {
   return IsSortedAndUnique(beg, end, std::less<typename std::iterator_traits<Iter>::value_type>());
-}
-
-// See std::includes() C++20.
-template <typename Iter1, typename Iter2>
-bool Includes(Iter1 first1, Iter1 last1, Iter2 first2, Iter2 last2)
-{
-  assert(std::is_sorted(first1, last1));
-  assert(std::is_sorted(first2, last2));
-
-  for (; first2 != last2; ++first1)
-  {
-    if (first1 == last1 || *first2 < *first1)
-      return false;
-    if (!(*first1 < *first2))
-      ++first2;
-  }
-  return true;
 }
 
 struct DeleteFunctor

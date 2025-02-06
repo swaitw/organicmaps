@@ -50,11 +50,11 @@ Platform::EError Platform::GetFileType(string const & path, EFileType & type)
   if (stat(path.c_str(), &stats) != 0)
     return ErrnoToError();
   if (S_ISREG(stats.st_mode))
-    type = FILE_TYPE_REGULAR;
+    type = EFileType::Regular;
   else if (S_ISDIR(stats.st_mode))
-    type = FILE_TYPE_DIRECTORY;
+    type = EFileType::Directory;
   else
-    type = FILE_TYPE_UNKNOWN;
+    type = EFileType::Unknown;
   return ERR_OK;
 }
 
@@ -114,7 +114,7 @@ Platform::TStorageStatus Platform::GetWritableStorageStatus(uint64_t neededSize)
   struct statfs st;
   int const ret = statfs(m_writableDir.c_str(), &st);
 
-  LOG(LDEBUG, ("statfs return =", ret,
+  LOG(LINFO, ("statfs return =", ret,
                "; block size =", st.f_bsize,
                "; blocks available =", st.f_bavail));
 
@@ -125,7 +125,7 @@ Platform::TStorageStatus Platform::GetWritableStorageStatus(uint64_t neededSize)
   }
 
   auto const availableBytes = st.f_bsize * st.f_bavail;
-  LOG(LDEBUG, ("Free space check: requested =", neededSize, "; available =", availableBytes));
+  LOG(LINFO, ("Free space check: requested =", neededSize, "; available =", availableBytes));
   if (availableBytes < neededSize)
     return NOT_ENOUGH_SPACE;
 

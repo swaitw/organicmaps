@@ -13,7 +13,6 @@
 #include "base/assert.hpp"
 #include "base/string_utils.hpp"
 
-#include <algorithm>
 #include <string>
 
 namespace routing
@@ -54,19 +53,11 @@ class RoadAttrsGetter
 public:
   void Load(FilesContainerR const & cont)
   {
-    try
-    {
-      if (cont.IsExist(CITY_ROADS_FILE_TAG))
-        m_cityRoads.Load(cont.GetReader(CITY_ROADS_FILE_TAG));
+    if (cont.IsExist(CITY_ROADS_FILE_TAG))
+      m_cityRoads.Load(cont.GetReader(CITY_ROADS_FILE_TAG));
 
-      if (cont.IsExist(MAXSPEEDS_FILE_TAG))
-        m_maxSpeeds.Load(cont.GetReader(MAXSPEEDS_FILE_TAG));
-    }
-    catch (Reader::Exception const & e)
-    {
-      LOG(LERROR, ("File", cont.GetFileName(), "Error while reading", CITY_ROADS_FILE_TAG, "or",
-                   MAXSPEEDS_FILE_TAG, "section.", e.Msg()));
-    }
+    if (cont.IsExist(MAXSPEEDS_FILE_TAG))
+      m_maxSpeeds.Load(cont.GetReader(MAXSPEEDS_FILE_TAG));
   }
 
 public:
@@ -127,6 +118,8 @@ public:
   void Load(uint32_t featureId, RoadGeometry & road) override
   {
     auto feature = m_featuresVector.GetVector().GetByIndex(featureId);
+    CHECK(feature, ());
+    feature->SetID({{}, featureId});
     feature->ParseGeometry(FeatureType::BEST_GEOMETRY);
 
     // Note. If FileGeometryLoader is used for generation cross mwm section for bicycle or
@@ -166,11 +159,12 @@ void RoadGeometry::Load(VehicleModelInterface const & vehicleModel, FeatureType 
   size_t const count = feature.GetPointsCount();
   CHECK(altitudes == nullptr || altitudes->size() == count, ());
 
-  m_highwayType = vehicleModel.GetHighwayType(feature);
+  feature::TypesHolder types(feature);
+  m_highwayType = vehicleModel.GetHighwayType(types);
 
-  m_valid = vehicleModel.IsRoad(feature);
-  m_isOneWay = vehicleModel.IsOneWay(feature);
-  m_isPassThroughAllowed = vehicleModel.IsPassThroughAllowed(feature);
+  m_valid = vehicleModel.IsRoad(types);
+  m_isOneWay = vehicleModel.IsOneWay(types);
+  m_isPassThroughAllowed = vehicleModel.IsPassThroughAllowed(types);
 
   uint32_t const fID = feature.GetID().m_index;
   m_inCity = attrs.m_cityRoads.IsCityRoad(fID);
@@ -179,11 +173,10 @@ void RoadGeometry::Load(VehicleModelInterface const & vehicleModel, FeatureType 
                      m_highwayType ? attrs.m_maxSpeeds.GetDefaultSpeed(m_inCity, *m_highwayType) : kInvalidSpeed,
                      m_inCity);
   params.m_forward = true;
-  m_forwardSpeed = vehicleModel.GetSpeed(feature, params);
+  m_forwardSpeed = vehicleModel.GetSpeed(types, params);
   params.m_forward = false;
-  m_backwardSpeed = vehicleModel.GetSpeed(feature, params);
+  m_backwardSpeed = vehicleModel.GetSpeed(types, params);
 
-  feature::TypesHolder types(feature);
   auto const & optionsClassfier = RoutingOptionsClassifier::Instance();
   for (uint32_t type : types)
   {
@@ -205,51 +198,46 @@ void RoadGeometry::Load(VehicleModelInterface const & vehicleModel, FeatureType 
       // Since we store integer altitudes, 1 is a possible error for 2 points.
       geometry::Altitude constexpr kError = 1;
 
-      auto const altDiff = abs((*altitudes)[i] - (*altitudes)[i-1]);
-      if (altDiff > kError)
+      auto const altDiff = (*altitudes)[i] - (*altitudes)[i-1];
+      auto const absDiff = abs(altDiff) - kError;
+      if (absDiff > 0)
       {
         double const dist = ms::DistanceOnEarth(m_junctions[i-1].GetLatLon(), m_junctions[i].GetLatLon());
-        if ((altDiff - kError) / dist > 0.3)
-          LOG(LWARNING, ("Altitudes jump:", m_junctions[i-1], m_junctions[i]));
+        if (absDiff / dist >= 1.0)
+          LOG(LWARNING, ("Altitudes jump:", altDiff, "/", dist, m_junctions[i-1], m_junctions[i]));
       }
     }
 #endif
   }
   m_distances.resize(count - 1, -1);
 
-  /// @todo Take out this logic into VehicleModel::GetSpeed to include
-  /// RouteShuttleTrain and RailwayRailMotorVehicle for bicycle and pedestrian.
-  if (m_routingOptions.Has(RoutingOptions::Road::Ferry))
+  bool const isFerry = m_routingOptions.Has(RoutingOptions::Road::Ferry);
+  /// @todo Add RouteShuttleTrain into RoutingOptions?
+  if (isFerry || (m_highwayType && *m_highwayType == HighwayType::RouteShuttleTrain))
   {
-    /// @todo Also process "interval" OSM tag (without additional boarding penalties).
-    // https://github.com/organicmaps/organicmaps/issues/3695
-
-    auto const roadLenKm = GetRoadLengthM() / 1000.0;
-    double const durationH = CalcFerryDurationHours(feature.GetMetadata(feature::Metadata::FMD_DURATION), roadLenKm);
-    CHECK(!base::AlmostEqualAbs(durationH, 0.0, 1e-5), (durationH));
-
-    if (roadLenKm != 0.0)
+    // Skip shuttle train calculation without duration.
+    auto const durationMeta = feature.GetMetadata(feature::Metadata::FMD_DURATION);
+    if (isFerry || !durationMeta.empty())
     {
-      double const speed = roadLenKm / durationH;
-      /// @todo Can fire now if you transit through some fast ferry. Can do one of the following:
-      /// - Remove assert, but update A* algo heuristic somehow;
-      /// - Reconsider ferry defaults;
-      /// - Make _very big_ bicycle/pedestrian maxspeed;
-      ASSERT_LESS_OR_EQUAL(speed, vehicleModel.GetMaxWeightSpeed(), (roadLenKm, durationH, fID));
-      m_forwardSpeed = m_backwardSpeed = SpeedKMpH(speed);
+      /// @todo Also process "interval" OSM tag (without additional boarding penalties).
+      // https://github.com/organicmaps/organicmaps/issues/3695
+
+      auto const roadLenKm = GetRoadLengthM() / 1000.0;
+      double const durationH = CalcFerryDurationHours(durationMeta, roadLenKm);
+      CHECK(!base::AlmostEqualAbs(durationH, 0.0, 1e-5), (durationH));
+
+      if (roadLenKm != 0.0)
+      {
+        double const speed = roadLenKm / durationH;
+        ASSERT_LESS_OR_EQUAL(speed, vehicleModel.GetMaxWeightSpeed(), (roadLenKm, durationH, fID));
+        m_forwardSpeed = m_backwardSpeed = SpeedKMpH(speed);
+      }
     }
   }
 
-  if (m_valid && (!m_forwardSpeed.IsValid() || !m_backwardSpeed.IsValid()))
+  if (m_valid)
   {
-    auto const & id = feature.GetID();
-    CHECK(!m_junctions.empty(), ("mwm:", id.GetMwmName(), ", featureId:", id.m_index));
-    auto const & begin = m_junctions.front().GetLatLon();
-    auto const & end = m_junctions.back().GetLatLon();
-    LOG(LERROR,
-        ("Invalid speed m_forwardSpeed:", m_forwardSpeed, "m_backwardSpeed:", m_backwardSpeed,
-         "mwm:", id.GetMwmName(), ", featureId:", id.m_index, ", begin:", begin, "end:", end));
-    m_valid = false;
+    ASSERT(m_forwardSpeed.IsValid() && m_backwardSpeed.IsValid(), (feature.DebugString()));
   }
 }
 

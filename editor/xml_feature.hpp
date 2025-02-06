@@ -2,6 +2,8 @@
 
 #include "geometry/mercator.hpp"
 #include "geometry/point2d.hpp"
+#include "indexer/feature_decl.hpp"
+#include "indexer/edit_journal.hpp"
 
 #include "coding/string_utf8_multilang.hpp"
 
@@ -27,18 +29,19 @@ DECLARE_EXCEPTION(NoLatLon, XMLFeatureError);
 DECLARE_EXCEPTION(NoXY, XMLFeatureError);
 DECLARE_EXCEPTION(NoTimestamp, XMLFeatureError);
 DECLARE_EXCEPTION(NoHeader, XMLFeatureError);
+DECLARE_EXCEPTION(InvalidJournalEntry, XMLFeatureError);
 
 class XMLFeature
 {
-  static constexpr char const * kDefaultName = "name";
-  static constexpr char const * kLocalName = "name:";
-  static constexpr char const * kIntlName = "int_name";
-  static constexpr char const * kAltName = "alt_name";
-  static constexpr char const * kOldName = "old_name";
-  static constexpr char const * kDefaultLang = "default";
-  static constexpr char const * kIntlLang = kIntlName;
-  static constexpr char const * kAltLang = kAltName;
-  static constexpr char const * kOldLang = kOldName;
+  static constexpr std::string_view kDefaultName = "name";
+  static constexpr std::string_view kLocalName = "name:";
+  static constexpr std::string_view kIntlName = "int_name";
+  static constexpr std::string_view kAltName = "alt_name";
+  static constexpr std::string_view kOldName = "old_name";
+  static constexpr std::string_view kDefaultLang = "default";
+  static constexpr std::string_view kIntlLang = kIntlName;
+  static constexpr std::string_view kAltLang = kAltName;
+  static constexpr std::string_view kOldLang = kOldName;
 
 public:
   // Used in point to string serialization.
@@ -108,13 +111,13 @@ public:
     SetGeometry(begin(geometry), end(geometry));
   }
 
-  std::string GetName(std::string const & lang) const;
+  std::string GetName(std::string_view lang) const;
   std::string GetName(uint8_t const langCode = StringUtf8Multilang::kDefaultCode) const;
 
   template <typename Fn>
   void ForEachName(Fn && func) const
   {
-    size_t const kPrefixLen = strlen(kLocalName);
+    size_t const kPrefixLen = kLocalName.size();
 
     for (auto const & tag : GetRootNode().select_nodes("tag"))
     {
@@ -161,6 +164,9 @@ public:
 
   std::string GetUploadError() const;
   void SetUploadError(std::string const & error);
+
+  osm::EditJournal GetEditJournal() const;
+  void SetEditJournal(osm::EditJournal const & journal);
   //@}
 
   bool HasAnyTags() const;
@@ -178,6 +184,9 @@ public:
   std::string GetTagValue(std::string_view key) const;
   void SetTagValue(std::string_view key, std::string_view value);
   void RemoveTag(std::string_view key);
+
+  /// Wrapper for SetTagValue and RemoveTag, avoids duplication for similar alternative osm tags
+  void UpdateOSMTag(std::string_view key, std::string_view value);
 
   std::string GetAttribute(std::string const & key) const;
   void SetAttribute(std::string const & key, std::string const & value);
@@ -202,6 +211,9 @@ void ApplyPatch(XMLFeature const & xml, osm::EditableMapObject & object);
 /// Useful for applying modifications to existing OSM features, to avoid issues when someone
 /// has changed a type in OSM, but our users uploaded invalid outdated type after modifying feature.
 XMLFeature ToXML(osm::EditableMapObject const & object, bool serializeType);
+
+/// Used to generate XML for created objects in the new editor
+XMLFeature TypeToXML(uint32_t type, feature::GeomType geomType, m2::PointD mercator);
 
 /// Creates new feature, including geometry and types.
 /// @Note: only nodes (points) are supported at the moment.

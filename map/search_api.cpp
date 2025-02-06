@@ -31,8 +31,6 @@ using BookmarkIdDoc = pair<bookmarks::Id, bookmarks::Doc>;
 double const kDistEqualQueryMeters = 100.0;
 double const kDistEqualQueryMercator = mercator::MetersToMercator(kDistEqualQueryMeters);
 
-size_t const kMaximumPossibleNumberOfBookmarksToIndex = 5000;
-
 // Cancels search query by |handle|.
 void CancelQuery(weak_ptr<ProcessorHandle> & handle)
 {
@@ -148,7 +146,7 @@ SearchAPI::SearchAPI(DataSource & dataSource, storage::Storage const & storage,
   , m_infoGetter(infoGetter)
   , m_delegate(delegate)
   , m_engine(m_dataSource, GetDefaultCategories(), m_infoGetter,
-             Engine::Params(languages::GetCurrentTwine() /* locale */, numThreads))
+             Engine::Params(languages::GetCurrentMapTwine() /* locale */, numThreads))
 {
 }
 
@@ -321,12 +319,6 @@ void SearchAPI::EnableIndexingOfBookmarksDescriptions(bool enable)
   m_engine.EnableIndexingOfBookmarksDescriptions(enable);
 }
 
-// static
-size_t SearchAPI::GetMaximumPossibleNumberOfBookmarksToIndex()
-{
-  return kMaximumPossibleNumberOfBookmarksToIndex;
-}
-
 void SearchAPI::EnableIndexingOfBookmarkGroup(kml::MarkGroupId const & groupId, bool enable)
 {
   if (enable)
@@ -335,11 +327,6 @@ void SearchAPI::EnableIndexingOfBookmarkGroup(kml::MarkGroupId const & groupId, 
     m_indexableGroups.erase(groupId);
 
   m_engine.EnableIndexingOfBookmarkGroup(KmlGroupIdToSearchGroupId(groupId), enable);
-}
-
-bool SearchAPI::IsIndexingOfBookmarkGroupEnabled(kml::MarkGroupId const & groupId)
-{
-  return m_indexableGroups.count(groupId) > 0;
 }
 
 unordered_set<kml::MarkGroupId> const & SearchAPI::GetIndexableGroups() const
@@ -433,6 +420,11 @@ void SearchAPI::SetViewportIfPossible(SearchParams & params)
 {
   if (m_isViewportInitialized)
     params.m_viewport = m_viewport;
+}
+
+void SearchAPI::SetLocale(std::string const & locale)
+{
+  m_engine.SetLocale(locale);
 }
 
 bool SearchAPI::QueryMayBeSkipped(SearchParams const & prevParams,

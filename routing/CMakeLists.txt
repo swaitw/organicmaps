@@ -46,7 +46,6 @@ set(SRC
   fake_edges_container.hpp
   fake_ending.cpp
   fake_ending.hpp
-  fake_feature_ids.cpp
   fake_feature_ids.hpp
   fake_graph.cpp
   fake_graph.hpp
@@ -139,6 +138,8 @@ set(SRC
   routing_session.hpp
   routing_settings.cpp
   routing_settings.hpp
+  ruler_router.cpp
+  ruler_router.hpp
   segment.cpp
   segment.hpp
   segmented_route.cpp
@@ -175,6 +176,8 @@ set(SRC
   turns_sound_settings.hpp
   turns_tts_text.cpp
   turns_tts_text.hpp
+  turns_tts_text_i18n.cpp
+  turns_tts_text_i18n.hpp
   vehicle_mask.cpp
   vehicle_mask.hpp
   world_graph.cpp
@@ -184,6 +187,7 @@ set(SRC
 omim_add_library(${PROJECT_NAME} ${SRC})
 
 target_link_libraries(${PROJECT_NAME}
+  base
   routing_common
   platform
   traffic

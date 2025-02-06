@@ -12,7 +12,6 @@ logger = logging.getLogger("maps_generator")
 
 class GenTool:
     OPTIONS = {
-        "disable_cross_mwm_progress": bool,
         "dump_cities_boundaries": bool,
         "emit_coasts": bool,
         "fail_on_coasts": bool,
@@ -60,6 +59,7 @@ class GenTool:
         "idToWikidata": str,
         "intermediate_data_path": str,
         "isolines_path": str,
+        "addresses_path": str,
         "nodes_list_path": str,
         "node_storage": str,
         "osm_file_name": str,

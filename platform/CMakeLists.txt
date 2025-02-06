@@ -11,6 +11,10 @@ set(SRC
   country_defines.hpp
   country_file.cpp
   country_file.hpp
+  distance.cpp
+  distance.hpp
+  duration.cpp
+  duration.hpp
   downloader_defines.hpp
   downloader_utils.cpp
   downloader_utils.hpp
@@ -49,14 +53,32 @@ set(SRC
   secure_storage.hpp
   servers_list.cpp
   servers_list.hpp
+  products.cpp
+  products.hpp
   settings.cpp
   settings.hpp
   socket.hpp
+  trace.hpp
   string_storage_base.cpp
   string_storage_base.hpp
+  utm_mgrs_utils.cpp
+  utm_mgrs_utils.hpp
 )
 
-if(${PLATFORM_IPHONE})
+if (NOT SKIP_QT_GUI AND PLATFORM_DESKTOP AND PLATFORM_LINUX)
+  message("Building with Qt Positioning")
+  find_package(Qt6 REQUIRED COMPONENTS Positioning)
+  set(QT_POSITIONING true)
+  append(SRC
+    qt_location_service.hpp
+    qt_location_service.cpp
+  )
+else()
+  message("Building without Qt Positioning")
+  set(QT_POSITIONING false)
+endif()
+
+if (PLATFORM_IPHONE)
   append(SRC
     background_downloader_ios.h
     background_downloader_ios.mm
@@ -81,10 +103,11 @@ elseif(${PLATFORM_ANDROID})
     platform_android.cpp
     platform_unix_impl.cpp
     platform_unix_impl.hpp
+    trace_android.cpp
   )
 else() # neither iPhone nor Android
   # Find bash first, on Windows it can be either in Git or in WSL
-  find_program(BASH bash)
+  find_program(BASH bash REQUIRED)
   # Generate version header file.
   execute_process(COMMAND "${BASH}" tools/unix/version.sh qt_version
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -113,11 +136,13 @@ else() # neither iPhone nor Android
 
   if (${PLATFORM_WIN})
     append(SRC
+      gui_thread_qt.cpp
       http_client_curl.cpp
       http_thread_qt.cpp
       http_thread_qt.hpp
       http_uploader_background_dummy.cpp
       http_uploader_dummy.cpp
+      locale_std.cpp
       platform_win.cpp
       secure_storage_dummy.cpp
     )
@@ -140,13 +165,13 @@ else() # neither iPhone nor Android
     )
   elseif(${PLATFORM_LINUX})
     append(SRC
-      gui_thread_linux.cpp
+      gui_thread_qt.cpp
       http_client_curl.cpp
       http_thread_qt.cpp
       http_thread_qt.hpp
       http_uploader_dummy.cpp
       http_uploader_background_dummy.cpp
-      locale_linux.cpp
+      locale_std.cpp
       platform_linux.cpp
       platform_unix_impl.cpp
       platform_unix_impl.hpp
@@ -156,21 +181,32 @@ else() # neither iPhone nor Android
 endif()
 
 omim_add_library(${PROJECT_NAME} ${SRC})
-
-if (APPLE)
-  target_compile_options(${PROJECT_NAME} PRIVATE "-fobjc-arc")
+if (QT_POSITIONING)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE "QT_LOCATION_SERVICE")
 endif()
 
-if (PLATFORM_LINUX)
+if (APPLE)
+  target_compile_options(${PROJECT_NAME} PRIVATE -fobjc-arc -Wno-nullability-completeness)
+endif()
+
+if (PLATFORM_LINUX OR PLATFORM_WIN)
   set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC ON)
 endif()
 
 target_link_libraries(${PROJECT_NAME}
   geometry  # mercator::YToLat
   coding
-  $<$<BOOL:${PLATFORM_DESKTOP}>:Qt5::Core>
-  $<$<BOOL:${PLATFORM_LINUX}>:Qt5::Network>
-  $<$<BOOL:${PLATFORM_MAC}>:-framework\ Foundation -framework\ SystemConfiguration -framework\ CoreLocation -framework\ CFNetwork>
+  $<$<BOOL:${PLATFORM_DESKTOP}>:Qt6::Core>
+  $<$<BOOL:${PLATFORM_LINUX}>:Qt6::Network>
+  $<$<BOOL:${PLATFORM_WIN}>:Qt6::Network>
+  $<$<BOOL:${QT_POSITIONING}>:Qt6::Positioning>
+  $<$<BOOL:${PLATFORM_MAC}>:
+    -framework\ Foundation
+    -framework\ SystemConfiguration
+    -framework\ CoreLocation
+    -framework\ CFNetwork
+    -framework\ Security  # SecPKCS12Import
+    >
 )
 
 omim_add_test_subdirectory(platform_tests_support)

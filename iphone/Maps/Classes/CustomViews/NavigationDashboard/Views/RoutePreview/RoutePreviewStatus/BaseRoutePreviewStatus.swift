@@ -7,7 +7,7 @@ final class BaseRoutePreviewStatus: SolidTouchView {
   @IBOutlet weak var manageRouteBoxBackground: UIView! {
     didSet {
       iPhoneSpecific {
-        manageRouteBoxBackground.styleName = "BlackOpaqueBackground"
+        manageRouteBoxBackground.setStyle(.blackOpaqueBackground)
       }
     }
   }
@@ -85,6 +85,7 @@ final class BaseRoutePreviewStatus: SolidTouchView {
   }
 
   private func configManageRouteButton(_ button: UIButton) {
+    button.setImagePadding(8)
     button.setTitle(L("planning_route_manage_route"), for: .normal)
   }
 
@@ -92,6 +93,7 @@ final class BaseRoutePreviewStatus: SolidTouchView {
     super.traitCollectionDidChange(previousTraitCollection)
     updateManageRouteVisibility()
     updateHeight()
+    updateResultsLabel()
   }
 
   private func updateManageRouteVisibility() {
@@ -140,11 +142,12 @@ final class BaseRoutePreviewStatus: SolidTouchView {
   private func updateResultsLabel() {
     guard let info = navigationInfo else { return }
 
-    if let result = info.estimate.mutableCopy() as? NSMutableAttributedString {
+    if let result = info.estimate().mutableCopy() as? NSMutableAttributedString {
       if let elevation = self.elevation {
         result.append(MWMNavigationDashboardEntity.estimateDot())
         result.append(elevation)
       }
+      
       resultLabel.attributedText = result
     }
   }
@@ -152,7 +155,7 @@ final class BaseRoutePreviewStatus: SolidTouchView {
   @objc func onNavigationInfoUpdated(_ info: MWMNavigationDashboardEntity) {
     navigationInfo = info
     updateResultsLabel()
-    arriveLabel?.text = String(coreFormat: L("routing_arrive"), arguments: [info.arrival])
+    arriveLabel?.text = String(format: L("routing_arrive"), arguments: [info.arrival])
   }
 
   override var sideButtonsAreaAffectDirections: MWMAvailableAreaAffectDirections {

@@ -35,7 +35,6 @@
 #endif // BUILD_DESIGNER
 
 #include <QtGui/QCloseEvent>
-#include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QDockWidget>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QHBoxLayout>
@@ -81,11 +80,17 @@ void FormatMapSize(uint64_t sizeInBytes, std::string & units, size_t & sizeToDow
   }
 }
 
+template <class T> T * CreateBlackControl(QString const & name)
+{
+  T * p = new T(name);
+  p->setStyleSheet("color: black;");
+  return p;
+}
+
 }  // namespace
 
 // Defined in osm_auth_dialog.cpp.
-extern char const * kTokenKeySetting;
-extern char const * kTokenSecretSetting;
+extern char const * kOauthTokenSetting;
 
 MainWindow::MainWindow(Framework & framework,
                        std::unique_ptr<ScreenshotParams> && screenshotParams,
@@ -94,8 +99,7 @@ MainWindow::MainWindow(Framework & framework,
                        , QString const & mapcssFilePath
 #endif
                        )
-  : m_Docks{}
-  , m_locationService(CreateDesktopLocationService(*this))
+  : m_locationService(CreateDesktopLocationService(*this))
   , m_screenshotMode(screenshotParams != nullptr)
 #ifdef BUILD_DESIGNER
   , m_mapcssFilePath(mapcssFilePath)
@@ -144,10 +148,11 @@ MainWindow::MainWindow(Framework & framework,
 #ifndef OMIM_OS_WINDOWS
   QMenu * helpMenu = new QMenu(tr("Help"), this);
   menuBar()->addMenu(helpMenu);
-  helpMenu->addAction(tr("About"), this, SLOT(OnAbout()));
-  helpMenu->addAction(tr("Preferences"), this, SLOT(OnPreferences()));
-  helpMenu->addAction(tr("OpenStreetMap Login"), this, SLOT(OnLoginMenuItem()));
-  helpMenu->addAction(tr("Upload Edits"), this, SLOT(OnUploadEditsMenuItem()));
+  helpMenu->addAction(tr("OpenStreetMap Login"), QKeySequence(Qt::CTRL | Qt::Key_O), this, SLOT(OnLoginMenuItem()));
+  helpMenu->addAction(tr("Upload Edits"), QKeySequence(Qt::CTRL | Qt::Key_U), this, SLOT(OnUploadEditsMenuItem()));
+  helpMenu->addAction(tr("Preferences"), QKeySequence(Qt::CTRL | Qt::Key_P), this, SLOT(OnPreferences()));
+  helpMenu->addAction(tr("About"), QKeySequence(Qt::Key_F1), this, SLOT(OnAbout()));
+  helpMenu->addAction(tr("Exit"), QKeySequence(Qt::CTRL | Qt::Key_Q), this, SLOT(close()));
 #else
   {
     // create items in the system menu
@@ -208,13 +213,14 @@ MainWindow::MainWindow(Framework & framework,
 #endif // NO_DOWNLOADER
 
   m_pDrawWidget->UpdateAfterSettingsChanged();
-  
+
   RoutingSettings::LoadSession(m_pDrawWidget->GetFramework());
 }
 
-#if defined(Q_WS_WIN)
-bool MainWindow::winEvent(MSG * msg, long * result)
+#if defined(OMIM_OS_WINDOWS)
+bool MainWindow::nativeEvent(QByteArray const & eventType, void * message, qintptr * result)
 {
+  MSG * msg = static_cast<MSG *>(message);
   if (msg->message == WM_SYSCOMMAND)
   {
     switch (msg->wParam)
@@ -229,7 +235,7 @@ bool MainWindow::winEvent(MSG * msg, long * result)
       return true;
     }
   }
-  return false;
+  return QMainWindow::nativeEvent(eventType, message, result);
 }
 #endif
 
@@ -276,9 +282,10 @@ void MainWindow::CreateNavigationBar()
 
     m_layers = new PopupMenuHolder(this);
 
-    m_layers->addAction(QIcon(":/navig64/traffic.png"), tr("Traffic"),
-                        std::bind(&MainWindow::OnLayerEnabled, this, LayerType::TRAFFIC), true);
-    m_layers->setChecked(LayerType::TRAFFIC, m_pDrawWidget->GetFramework().LoadTrafficEnabled());
+    /// @todo Uncomment when we will integrate a traffic provider.
+    // m_layers->addAction(QIcon(":/navig64/traffic.png"), tr("Traffic"),
+    //                     std::bind(&MainWindow::OnLayerEnabled, this, LayerType::TRAFFIC), true);
+    // m_layers->setChecked(LayerType::TRAFFIC, m_pDrawWidget->GetFramework().LoadTrafficEnabled());
 
     m_layers->addAction(QIcon(":/navig64/subway.png"), tr("Public transport"),
                         std::bind(&MainWindow::OnLayerEnabled, this, LayerType::TRANSIT), true);
@@ -288,12 +295,16 @@ void MainWindow::CreateNavigationBar()
                         std::bind(&MainWindow::OnLayerEnabled, this, LayerType::ISOLINES), true);
     m_layers->setChecked(LayerType::ISOLINES, m_pDrawWidget->GetFramework().LoadIsolinesEnabled());
 
+    m_layers->addAction(QIcon(":/navig64/isolines.png"), tr("Outdoors"),
+                        std::bind(&MainWindow::OnLayerEnabled, this, LayerType::OUTDOORS), true);
+    m_layers->setChecked(LayerType::OUTDOORS, m_pDrawWidget->GetFramework().LoadOutdoorsEnabled());
+
     pToolBar->addWidget(m_layers->create());
     m_layers->setMainIcon(QIcon(":/navig64/layers.png"));
 
     pToolBar->addSeparator();
 
-    pToolBar->addAction(QIcon(":/navig64/bookmark.png"), tr("Show bookmarks and tracks"),
+    pToolBar->addAction(QIcon(":/navig64/bookmark.png"), tr("Show bookmarks and tracks; use ALT + RMB to add a bookmark"),
                         this, SLOT(OnBookmarksAction()));
     pToolBar->addSeparator();
 
@@ -365,12 +376,10 @@ void MainWindow::CreateNavigationBar()
 
     pToolBar->addSeparator();
 
-// #ifndef OMIM_OS_LINUX
     // add my position button with "checked" behavior
 
     m_pMyPositionAction = pToolBar->addAction(QIcon(":/navig64/location.png"), tr("My Position"), this, SLOT(OnMyPosition()));
     m_pMyPositionAction->setCheckable(true);
-// #endif
 
 #ifdef BUILD_DESIGNER
     // Add "Build style" button
@@ -449,17 +458,17 @@ Framework & MainWindow::GetFramework() const
 void MainWindow::CreateCountryStatusControls()
 {
   QHBoxLayout * mainLayout = new QHBoxLayout();
-  m_downloadButton = new QPushButton("Download");
+  m_downloadButton = CreateBlackControl<QPushButton>("Download");
   mainLayout->addWidget(m_downloadButton, 0, Qt::AlignHCenter);
   m_downloadButton->setVisible(false);
   connect(m_downloadButton, &QAbstractButton::released, this, &MainWindow::OnDownloadClicked);
 
-  m_retryButton = new QPushButton("Retry downloading");
+  m_retryButton = CreateBlackControl<QPushButton>("Retry downloading");
   mainLayout->addWidget(m_retryButton, 0, Qt::AlignHCenter);
   m_retryButton->setVisible(false);
   connect(m_retryButton, &QAbstractButton::released, this, &MainWindow::OnRetryDownloadClicked);
 
-  m_downloadingStatusLabel = new QLabel("Downloading");
+  m_downloadingStatusLabel = CreateBlackControl<QLabel>("Downloading");
   mainLayout->addWidget(m_downloadingStatusLabel, 0, Qt::AlignHCenter);
   m_downloadingStatusLabel->setVisible(false);
 
@@ -540,16 +549,22 @@ void MainWindow::OnLocationError(location::TLocationError errorCode)
 {
   switch (errorCode)
   {
-  case location::EDenied:
-    m_pMyPositionAction->setEnabled(false);
-    break;
+  case location::EDenied:  [[fallthrough]];
+  case location::ETimeout: [[fallthrough]];
+  case location::EUnknown:
+    {
+      if (m_pDrawWidget && m_pMyPositionAction)
+        m_pMyPositionAction->setEnabled(false);
+      break;
+    }
 
   default:
     ASSERT(false, ("Not handled location notification:", errorCode));
     break;
   }
 
-  m_pDrawWidget->GetFramework().OnLocationError(errorCode);
+  if (m_pDrawWidget != nullptr)
+    m_pDrawWidget->GetFramework().OnLocationError(errorCode);
 }
 
 void MainWindow::OnLocationUpdated(location::GpsInfo const & info)
@@ -625,9 +640,8 @@ void MainWindow::OnLoginMenuItem()
 
 void MainWindow::OnUploadEditsMenuItem()
 {
-  std::string key, secret;
-  if (!settings::Get(kTokenKeySetting, key) || key.empty() ||
-      !settings::Get(kTokenSecretSetting, secret) || secret.empty())
+  std::string token;
+  if (!settings::Get(kOauthTokenSetting, token) || token.empty())
   {
     OnLoginMenuItem();
   }
@@ -635,7 +649,7 @@ void MainWindow::OnUploadEditsMenuItem()
   {
     auto & editor = osm::Editor::Instance();
     if (editor.HaveMapEditsOrNotesToUpload())
-      editor.UploadChanges(key, secret, {{"created_by", "Organic Maps " OMIM_OS_NAME}});
+      editor.UploadChanges(token, {{"created_by", "Organic Maps " OMIM_OS_NAME}});
   }
 }
 
@@ -649,11 +663,11 @@ void MainWindow::OnBeforeEngineCreation()
 
 void MainWindow::OnPreferences()
 {
-  PreferencesDialog dlg(this);
+  Framework & framework = m_pDrawWidget->GetFramework();
+  PreferencesDialog dlg(this, framework);
   dlg.exec();
 
-  m_pDrawWidget->GetFramework().SetupMeasurementSystem();
-  m_pDrawWidget->GetFramework().EnterForeground();
+  framework.EnterForeground();
 }
 
 #ifdef BUILD_DESIGNER
@@ -862,10 +876,11 @@ void MainWindow::SetLayerEnabled(LayerType type, bool enable)
   auto & frm = m_pDrawWidget->GetFramework();
   switch (type)
   {
-  case LayerType::TRAFFIC:
-    frm.GetTrafficManager().SetEnabled(enable);
-    frm.SaveTrafficEnabled(enable);
-    break;
+  // @todo Uncomment when we will integrate a traffic provider.
+  // case LayerType::TRAFFIC:
+  //   frm.GetTrafficManager().SetEnabled(enable);
+  //   frm.SaveTrafficEnabled(enable);
+  //   break;
   case LayerType::TRANSIT:
     frm.GetTransitManager().EnableTransitSchemeMode(enable);
     frm.SaveTransitSchemeEnabled(enable);
@@ -874,24 +889,19 @@ void MainWindow::SetLayerEnabled(LayerType type, bool enable)
     frm.GetIsolinesManager().SetEnabled(enable);
     frm.SaveIsolinesEnabled(enable);
     break;
-  default:
-    UNREACHABLE();
+  case LayerType::OUTDOORS:
+    frm.SaveOutdoorsEnabled(enable);
+    if (enable)
+      m_pDrawWidget->SetMapStyleToOutdoors();
+    else
+      m_pDrawWidget->SetMapStyleToDefault();
     break;
   }
 }
 
 void MainWindow::OnLayerEnabled(LayerType layer)
 {
-  for (size_t i = 0; i < LayerType::COUNT; ++i)
-  {
-    if (i == layer)
-      SetLayerEnabled(static_cast<LayerType>(i), m_layers->isChecked(i));
-    else
-    {
-      m_layers->setChecked(i, false);
-      SetLayerEnabled(static_cast<LayerType>(i), false);
-    }
-  }
+  SetLayerEnabled(layer, m_layers->isChecked(layer));
 }
 
 void MainWindow::OnRulerEnabled()

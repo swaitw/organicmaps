@@ -1,14 +1,13 @@
 #include "platform/platform.hpp"
 
 #include "coding/internal/file_data.hpp"
-#include "coding/writer.hpp"
 
 #include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
+#include "base/random.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
-#include <random>
 #include <thread>
 
 #include "private.h"
@@ -19,17 +18,15 @@ namespace
 {
 std::string RandomString(size_t length)
 {
+  /// @todo Used for temp file name, so lower-upper case is strange here, no?
   static std::string_view constexpr kCharset =
       "0123456789"
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
       "abcdefghijklmnopqrstuvwxyz";
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<size_t> dis(0, kCharset.size() - 1);
+
+  base::UniformRandom<size_t> rand(0, kCharset.size() - 1);
   std::string str(length, 0);
-  std::generate_n(str.begin(), length, [&]() {
-    return kCharset[dis(gen)];
-  });
+  std::generate_n(str.begin(), length, [&rand]() { return kCharset[rand()]; });
   return str;
 }
 
@@ -94,7 +91,7 @@ bool Platform::RmDirRecursively(std::string const & dirName)
     if (GetFileType(path, type) != ERR_OK)
       continue;
 
-    if (type == FILE_TYPE_DIRECTORY)
+    if (type == EFileType::Directory)
     {
       if (!IsSpecialDirName(file) && !RmDirRecursively(path))
         res = false;
@@ -196,9 +193,13 @@ void Platform::GetFontNames(FilesList & res) const
   ASSERT(res.empty(), ());
 
   /// @todo Actually, this list should present once in all our code.
-  char const * arrDef[] = {
+  char constexpr const * arrDef[] = {
     "00_NotoNaskhArabic-Regular.ttf",
+    "00_NotoSansBengali-Regular.ttf",
+    "00_NotoSansHebrew-Regular.ttf",
+    "00_NotoSansMalayalam-Regular.ttf",
     "00_NotoSansThai-Regular.ttf",
+    "00_NotoSerifDevanagari-Regular.ttf",
     "01_dejavusans.ttf",
     "02_droidsans-fallback.ttf",
     "03_jomolhari-id-a3d.ttf",
@@ -214,13 +215,13 @@ void Platform::GetFontNames(FilesList & res) const
   LOG(LINFO, ("Available font files:", (res)));
 }
 
-void Platform::GetFilesByExt(std::string const & directory, std::string const & ext, FilesList & outFiles)
+void Platform::GetFilesByExt(std::string const & directory, std::string_view ext, FilesList & outFiles)
 {
   // Transform extension mask to regexp (.mwm -> \.mwm$)
   ASSERT ( !ext.empty(), () );
   ASSERT_EQUAL ( ext[0], '.' , () );
-
-  GetFilesByRegExp(directory, '\\' + ext + '$', outFiles);
+  std::string regexp = "\\";
+  GetFilesByRegExp(directory, regexp.append(ext).append("$"), outFiles);
 }
 
 // static
@@ -245,7 +246,7 @@ bool Platform::IsDirectory(std::string const & path)
   EFileType fileType;
   if (GetFileType(path, fileType) != ERR_OK)
     return false;
-  return fileType == FILE_TYPE_DIRECTORY;
+  return fileType == EFileType::Directory;
 }
 
 // static
@@ -253,21 +254,21 @@ void Platform::GetFilesRecursively(std::string const & directory, FilesList & fi
 {
   TFilesWithType files;
 
-  GetFilesByType(directory, Platform::FILE_TYPE_REGULAR, files);
+  GetFilesByType(directory, EFileType::Regular, files);
   for (auto const & p : files)
   {
     auto const & file = p.first;
-    CHECK_EQUAL(p.second, Platform::FILE_TYPE_REGULAR, ("dir:", directory, "file:", file));
+    CHECK_EQUAL(p.second, EFileType::Regular, ("dir:", directory, "file:", file));
     filesList.push_back(base::JoinPath(directory, file));
   }
 
   TFilesWithType subdirs;
-  GetFilesByType(directory, Platform::FILE_TYPE_DIRECTORY, subdirs);
+  GetFilesByType(directory, EFileType::Directory, subdirs);
 
   for (auto const & p : subdirs)
   {
     auto const & subdir = p.first;
-    CHECK_EQUAL(p.second, Platform::FILE_TYPE_DIRECTORY, ("dir:", directory, "subdir:", subdir));
+    CHECK_EQUAL(p.second, EFileType::Directory, ("dir:", directory, "subdir:", subdir));
     if (subdir == "." || subdir == "..")
       continue;
 
@@ -288,16 +289,15 @@ void Platform::SetResourceDir(std::string const & path)
 // static
 bool Platform::MkDirChecked(std::string const & dirName)
 {
-  Platform::EError const ret = MkDir(dirName);
-  switch (ret)
+  switch (EError const ret = MkDir(dirName))
   {
-  case Platform::ERR_OK: return true;
-  case Platform::ERR_FILE_ALREADY_EXISTS:
+  case ERR_OK: return true;
+  case ERR_FILE_ALREADY_EXISTS:
   {
-    Platform::EFileType type;
+    EFileType type;
     if (!GetFileTypeChecked(dirName, type))
       return false;
-    if (type != Platform::FILE_TYPE_DIRECTORY)
+    if (type != Directory)
     {
       LOG(LERROR, (dirName, "exists, but not a dirName:", type));
       return false;
@@ -311,16 +311,16 @@ bool Platform::MkDirChecked(std::string const & dirName)
 // static
 bool Platform::MkDirRecursively(std::string const & dirName)
 {
+  CHECK(!dirName.empty(), ());
+
   std::string::value_type const sep[] = { base::GetNativeSeparator(), 0};
-  std::string path = strings::StartsWith(dirName, sep) ? sep : ".";
-  auto const tokens = strings::Tokenize(dirName, sep);
-  for (auto const & t : tokens)
+  std::string path = dirName.starts_with(sep[0]) ? sep : ".";
+  for (auto const & t : strings::Tokenize(dirName, sep))
   {
     path = base::JoinPath(path, std::string{t});
     if (!IsFileExistsByFullPath(path))
     {
-      auto const ret = MkDir(path);
-      switch (ret)
+      switch (MkDir(path))
       {
       case ERR_OK: break;
       case ERR_FILE_ALREADY_EXISTS:
@@ -337,7 +337,7 @@ bool Platform::MkDirRecursively(std::string const & dirName)
   return true;
 }
 
-unsigned Platform::CpuCores() const
+unsigned Platform::CpuCores()
 {
   unsigned const cores = std::thread::hardware_concurrency();
   return cores > 0 ? cores : 1;
@@ -363,9 +363,9 @@ void Platform::RunThreads()
   ASSERT(!m_fileThread || m_fileThread->IsShutDown(), ());
   ASSERT(!m_backgroundThread || m_backgroundThread->IsShutDown(), ());
 
-  m_networkThread = std::make_unique<base::thread_pool::delayed::ThreadPool>();
-  m_fileThread = std::make_unique<base::thread_pool::delayed::ThreadPool>();
-  m_backgroundThread = std::make_unique<base::thread_pool::delayed::ThreadPool>();
+  m_networkThread = std::make_unique<base::DelayedThreadPool>();
+  m_fileThread = std::make_unique<base::DelayedThreadPool>();
+  m_backgroundThread = std::make_unique<base::DelayedThreadPool>();
 }
 
 void Platform::SetGuiThread(std::unique_ptr<base::TaskLoop> guiThread)

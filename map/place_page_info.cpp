@@ -2,28 +2,26 @@
 
 #include "map/bookmark_helpers.hpp"
 
-#include "descriptions/loader.hpp"
-
-
-#include "editor/osm_editor.hpp"
-
-#include "indexer/feature_source.hpp"
 #include "indexer/feature_utils.hpp"
+#include "indexer/ftypes_matcher.hpp"
 #include "indexer/road_shields_parser.hpp"
 
+#include "platform/localization.hpp"
 #include "platform/measurement_utils.hpp"
 #include "platform/preferred_languages.hpp"
-#include "platform/localization.hpp"
+#include "platform/utm_mgrs_utils.hpp"
+#include "platform/distance.hpp"
+#include "platform/duration.hpp"
+
+#include "geometry/mercator.hpp"
 
 #include "base/assert.hpp"
 
-#include <sstream>
+#include "3party/open-location-code/openlocationcode.h"
+
 
 namespace place_page
 {
-char const * const Info::kStarSymbol = "★";
-char const * const Info::kMountainSymbol = "▲";
-char const * const kWheelchairSymbol = u8"\u267F";
 
 bool Info::IsBookmark() const
 {
@@ -33,7 +31,7 @@ bool Info::IsBookmark() const
 bool Info::ShouldShowAddPlace() const
 {
   auto const isPointOrBuilding = IsPointType() || IsBuilding();
-  return m_canEditOrAdd && !(IsFeature() && isPointOrBuilding);
+  return !(IsFeature() && isPointOrBuilding);
 }
 
 void Info::SetFromFeatureType(FeatureType & ft)
@@ -45,11 +43,15 @@ void Info::SetFromFeatureType(FeatureType & ft)
   auto const mwmInfo = GetID().m_mwmId.GetInfo();
   if (mwmInfo)
   {
-    feature::GetPreferredNames({ m_name, mwmInfo->GetRegionData(), languages::GetCurrentNorm(),
+    feature::GetPreferredNames({ m_name, mwmInfo->GetRegionData(), languages::GetCurrentMapLanguage(),
                                true /* allowTranslit */} , out);
   }
 
+  bool emptyTitle = false;
+
   m_primaryFeatureName = out.GetPrimary();
+  m_uiAddress = m_address;
+
   if (IsBookmark())
   {
     m_uiTitle = GetBookmarkName();
@@ -65,31 +67,41 @@ void Info::SetFromFeatureType(FeatureType & ft)
 
     if (m_uiTitle != secondaryTitle)
       m_uiSecondaryTitle = std::move(secondaryTitle);
-
-    m_uiSubtitle = FormatSubtitle(true /* withType */);
-    m_uiAddress = m_address;
   }
   else if (!m_primaryFeatureName.empty())
   {
     m_uiTitle = m_primaryFeatureName;
     m_uiSecondaryTitle = out.secondary;
-    m_uiSubtitle = FormatSubtitle(true /* withType */);
-    m_uiAddress = m_address;
-  }
-  else if (IsBuilding())
-  {
-    bool const isAddressEmpty = m_address.empty();
-    m_uiTitle = isAddressEmpty ? GetLocalizedType() : m_address;
-    m_uiSubtitle = FormatSubtitle(!isAddressEmpty /* withType */);
   }
   else
   {
-    m_uiTitle = GetLocalizedType();
-    m_uiSubtitle = FormatSubtitle(false /* withType */);
-    m_uiAddress = m_address;
+    if (IsBuilding())
+    {
+      emptyTitle = m_address.empty();
+      if (!emptyTitle)
+        m_uiTitle = m_address;
+      m_uiAddress.clear();    // already in main title
+    }
+    else
+      emptyTitle = true;
   }
 
-  m_hotelType = ftypes::IsHotelChecker::Instance().GetHotelType(ft);
+  // Assign Feature's type if main title is empty.
+  if (emptyTitle)
+    m_uiTitle = GetLocalizedType();
+
+  // Append local_ref tag into main title.
+  if (IsPublicTransportStop())
+  {
+    auto const lRef = GetMetadata(feature::Metadata::FMD_LOCAL_REF);
+    if (!lRef.empty())
+      m_uiTitle.append(" (").append(lRef).append(")");
+  }
+
+  m_uiSubtitle = FormatSubtitle(IsFeature() /* withTypes */, !emptyTitle /* withMainType */);
+
+  // apply to all types after checks
+  m_isHotel = ftypes::IsHotelChecker::Instance()(ft);
 }
 
 void Info::SetMercator(m2::PointD const & mercator)
@@ -98,21 +110,24 @@ void Info::SetMercator(m2::PointD const & mercator)
   m_buildInfo.m_mercator = mercator;
 }
 
-std::string Info::FormatSubtitle(bool withType) const
+std::string Info::FormatSubtitle(bool withTypes, bool withMainType) const
 {
   std::string result;
   auto const append = [&result](std::string_view sv)
   {
     if (!result.empty())
-      result += kFieldsSeparator;
+      result += feature::kFieldsSeparator;
     result += sv;
   };
 
   if (IsBookmark())
     append(m_bookmarkCategoryName);
 
-  if (withType)
-    append(GetLocalizedType());
+  if (!withTypes)
+    return result;
+
+  // Types
+  append(GetLocalizedAllTypes(withMainType));
 
   // Flats.
   auto const flats = GetMetadata(feature::Metadata::FMD_FLATS);
@@ -138,7 +153,7 @@ std::string Info::FormatSubtitle(bool withType) const
     append(roadShields);
 
   // Stars.
-  auto const stars = FormatStars();
+  auto const stars = feature::FormatStars(GetStars());
   if (!stars.empty())
     append(stars);
 
@@ -147,18 +162,49 @@ std::string Info::FormatSubtitle(bool withType) const
   if (!op.empty())
     append(op);
 
+  // Brand.
+  auto const brand = GetMetadata(feature::Metadata::FMD_BRAND);
+  if (!brand.empty() && brand != op)
+  {
+    /// @todo May not work as expected because we store raw value from OSM,
+    /// while current localizations assume to have some string ids (like "mcdonalds").
+    auto const locBrand = platform::GetLocalizedBrandName(std::string(brand));
+
+    // Do not duplicate for commonly used titles like McDonald's, Starbucks, etc.
+    if (locBrand != m_uiTitle && locBrand != m_uiSecondaryTitle)
+      append(locBrand);
+  }
+
   // Elevation.
-  auto const eleStr = GetElevationFormatted();
+  auto const eleStr = feature::FormatElevation(GetMetadata(MetadataID::FMD_ELE));
   if (!eleStr.empty())
-    append(kMountainSymbol + eleStr);
+    append(eleStr);
+
+  // ATM
+  if (HasAtm())
+    append(feature::kAtmSymbol);
 
   // Internet.
   if (HasWifi())
-    append(m_localizedWifiString);
+    append(feature::kWifiSymbol);
+
+  // Toilets.
+  if (HasToilets())
+    append(feature::kToiletsSymbol);
+
+  // Drinking Water
+  auto const drinkingWater = feature::FormatDrinkingWater(GetTypes());
+  if (!drinkingWater.empty())
+    append(drinkingWater);
 
   // Wheelchair
-  if (GetWheelchairType() == ftraits::WheelchairAvailability::Yes)
-    append(kWheelchairSymbol);
+  if (feature::GetWheelchairType(m_types) == ftraits::WheelchairAvailability::Yes)
+    append(feature::kWheelchairSymbol);
+
+  // Fee.
+  auto const fee = GetLocalizedFeeType();
+  if (!fee.empty())
+    append(fee);
 
   return result;
 }
@@ -189,7 +235,7 @@ void Info::SetTitlesForBookmark()
   subtitle.push_back(m_bookmarkCategoryName);
   if (!m_bookmarkData.m_featureTypes.empty())
     subtitle.push_back(GetLocalizedFeatureType(m_bookmarkData.m_featureTypes));
-  m_uiSubtitle = strings::JoinStrings(subtitle, kFieldsSeparator);
+  m_uiSubtitle = strings::JoinStrings(subtitle, feature::kFieldsSeparator);
 }
 
 void Info::SetCustomName(std::string const & name)
@@ -200,6 +246,20 @@ void Info::SetCustomName(std::string const & name)
     m_uiTitle = name;
 
   m_customName = name;
+}
+
+void Info::SetTitlesForTrack(Track const & track)
+{
+  m_uiTitle = track.GetName();
+  m_uiSubtitle = m_bookmarkCategoryName;
+
+  std::vector<std::string> statistics;
+  auto const length = track.GetLengthMeters();
+  auto const duration = track.GetDurationInSeconds();
+  statistics.push_back(platform::Distance::CreateFormatted(length).ToString());
+  if (duration > 0)
+    statistics.push_back(platform::Duration(duration).GetPlatformLocalizedString());
+  m_uiTrackStatistics = strings::JoinStrings(statistics, feature::kFieldsSeparator);
 }
 
 void Info::SetCustomNames(std::string const & title, std::string const & subtitle)
@@ -241,14 +301,13 @@ void Info::SetFromBookmarkProperties(kml::Properties const & p)
 void Info::SetBookmarkId(kml::MarkId bookmarkId)
 {
   m_bookmarkId = bookmarkId;
-  m_uiSubtitle = FormatSubtitle(IsFeature() /* withType */);
+  m_uiSubtitle = FormatSubtitle(IsFeature() /* withTypes */, IsFeature() /* withMainType */);
 }
 
 bool Info::ShouldShowEditPlace() const
 {
-  return m_canEditOrAdd &&
-         // TODO(mgsergio): Does IsFeature() imply !IsMyPosition()?
-         !IsMyPosition() && IsFeature();
+  // TODO(mgsergio): Does IsFeature() imply !IsMyPosition()?
+  return !IsMyPosition() && IsFeature();
 }
 
 kml::LocalizableString Info::FormatNewBookmarkName() const
@@ -276,19 +335,39 @@ kml::LocalizableString Info::FormatNewBookmarkName() const
   return bookmarkName;
 }
 
-std::string Info::FormatStars() const
-{
-  std::string stars;
-  for (int i = 0; i < GetStars(); ++i)
-    stars.append(kStarSymbol);
-  return stars;
-}
-
-std::string Info::GetFormattedCoordinate(bool isDMS) const
+std::string Info::GetFormattedCoordinate(CoordinatesFormat coordsFormat) const
 {
   auto const & ll = GetLatLon();
-  return isDMS ? measurement_utils::FormatLatLon(ll.m_lat, ll.m_lon, true)
-               : measurement_utils::FormatLatLonAsDMS(ll.m_lat, ll.m_lon, false, 2);
+  auto const lat = ll.m_lat;
+  auto const lon = ll.m_lon;
+  switch (coordsFormat)
+  {
+    default:
+    case CoordinatesFormat::LatLonDMS: // DMS, comma separated
+      return measurement_utils::FormatLatLonAsDMS(lat, lon, false /*withComma*/, 2);
+    case CoordinatesFormat::LatLonDecimal: // Decimal, comma separated
+      return measurement_utils::FormatLatLon(lat, lon, true /* withComma */);
+    case CoordinatesFormat::OLCFull: // Open location code, long format
+      return openlocationcode::Encode({lat, lon});
+    case CoordinatesFormat::OSMLink: // Link to osm.org
+      return measurement_utils::FormatOsmLink(lat, lon, 14);
+    case CoordinatesFormat::UTM:  // Universal Transverse Mercator
+    {
+      std::string utmCoords = utm_mgrs_utils::FormatUTM(lat, lon);
+      if (utmCoords.empty())
+        return "UTM: N/A";
+      else
+        return "UTM: " + utmCoords;
+    }
+    case CoordinatesFormat::MGRS: // Military Grid Reference System
+    {
+      std::string mgrsCoords = utm_mgrs_utils::FormatMGRS(lat, lon, 5);
+      if (mgrsCoords.empty())
+        return "MGRS: N/A";
+      else
+        return "MGRS: " + mgrsCoords;
+    }
+  }
 }
 
 void Info::SetRoadType(RoadWarningMarkType type, std::string const & localizedType, std::string const & distance)
@@ -305,7 +384,7 @@ void Info::SetRoadType(FeatureType & ft, RoadWarningMarkType type, std::string c
   {
     if (!m_uiTitle.empty())
     {
-      m_uiTitle += kFieldsSeparator;
+      m_uiTitle += feature::kFieldsSeparator;
       m_uiTitle += str;
     }
     else
@@ -315,7 +394,7 @@ void Info::SetRoadType(FeatureType & ft, RoadWarningMarkType type, std::string c
   auto const addSubtitle = [this](std::string_view sv)
   {
     if (!m_uiSubtitle.empty())
-      m_uiSubtitle += kFieldsSeparator;
+      m_uiSubtitle += feature::kFieldsSeparator;
     m_uiSubtitle += sv;
   };
 

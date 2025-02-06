@@ -66,7 +66,6 @@ char const * UserEventStream::DOUBLE_TAP_AND_HOLD = "DoubleTapAndHold";
 char const * UserEventStream::END_DOUBLE_TAP_AND_HOLD = "EndDoubleTapAndHold";
 #endif
 
-uint8_t constexpr TouchEvent::INVALID_MASKED_POINTER = 0xFF;
 
 void TouchEvent::SetFirstTouch(const Touch & touch)
 {
@@ -129,6 +128,17 @@ void TouchEvent::Swap()
   SetSecondMaskedPointer(swapIndex(GetSecondMaskedPointer()));
 }
 
+std::string DebugPrint(Touch const & t)
+{
+  return DebugPrint(t.m_location) + "; " + std::to_string(t.m_id) + "; " + std::to_string(t.m_force);
+}
+
+std::string DebugPrint(TouchEvent const & e)
+{
+  return std::to_string(e.m_type) + "; { " + DebugPrint(e.m_touches[0]) + " }";
+}
+
+
 UserEventStream::UserEventStream()
   : m_state(STATE_EMPTY)
   , m_animationSystem(AnimationSystem::Instance())
@@ -144,7 +154,8 @@ void UserEventStream::AddEvent(drape_ptr<UserEvent> && event)
   m_events.emplace_back(std::move(event));
 }
 
-ScreenBase const & UserEventStream::ProcessEvents(bool & modelViewChanged, bool & viewportChanged)
+ScreenBase const & UserEventStream::ProcessEvents(bool & modelViewChanged, bool & viewportChanged, 
+                                                  bool & activeFrame)
 {
   TEventsList events;
   {
@@ -154,6 +165,7 @@ ScreenBase const & UserEventStream::ProcessEvents(bool & modelViewChanged, bool 
 
   m2::RectD const prevPixelRect = GetCurrentScreen().PixelRect();
 
+  activeFrame = false;
   viewportChanged = false;
   m_modelViewChanged = !events.empty() || m_state == STATE_SCALE || m_state == STATE_DRAG;
 
@@ -251,7 +263,18 @@ ScreenBase const & UserEventStream::ProcessEvents(bool & modelViewChanged, bool 
         breakAnim = OnNewVisibleViewport(viewportEvent);
       }
       break;
-
+    case UserEvent::EventType::Scroll:
+      {
+        ref_ptr<ScrollEvent> scrollEvent = make_ref(e);
+        breakAnim = OnScroll(scrollEvent);
+        TouchCancel(m_touches);
+      }
+      break;
+    case UserEvent::EventType::ActiveFrame:
+      {
+        activeFrame = true;
+      }
+      break;
     default:
       ASSERT(false, ());
       break;
@@ -455,6 +478,23 @@ bool UserEventStream::OnNewVisibleViewport(ref_ptr<SetVisibleViewportEvent> view
     return SetScreen(screen, true /* isAnim */);
   }
   return false;
+}
+
+bool UserEventStream::OnScroll(ref_ptr<ScrollEvent> scrollEvent)
+{
+  double const distanceX = scrollEvent->GetDistanceX();
+  double const distanceY = scrollEvent->GetDistanceY();
+
+  ScreenBase screen;
+  GetTargetScreen(screen);
+  screen.Move(-distanceX, -distanceY);
+
+  ShrinkAndScaleInto(screen, df::GetWorldRect());
+
+  if (m_listener)
+    m_listener->OnScrolled({-distanceX, -distanceY});
+
+  return SetScreen(screen, false);
 }
 
 bool UserEventStream::SetAngle(double azimuth, bool isAnim, TAnimationCreator const & parallelAnimCreator)
@@ -695,17 +735,6 @@ m2::AnyRectD UserEventStream::GetTargetRect()
   ScreenBase targetScreen;
   GetTargetScreen(targetScreen);
   return targetScreen.GlobalRect();
-}
-
-void UserEventStream::CheckAutoRotate()
-{
-  if (GetCurrentScreen().isPerspective())
-    return;
-
-  double const kMaxAutoRotateAngle = 25.0 * math::pi / 180.0;
-  double const angle = fabs(GetCurrentScreen().GetAngle());
-  if (angle < kMaxAutoRotateAngle || (2.0 * math::pi - angle) < kMaxAutoRotateAngle)
-    SetAngle(0.0, true /* isAnim */);
 }
 
 bool UserEventStream::ProcessTouch(TouchEvent const & touch)
@@ -1047,8 +1076,6 @@ bool UserEventStream::EndDrag(Touch const & t, bool cancelled)
   m_startDragOrg = m2::PointD::Zero();
   m_navigator.StopDrag(m2::PointD(t.m_location));
 
-  CheckAutoRotate();
-
   if (!cancelled && m_kineticScrollEnabled && m_scroller.IsActive() &&
       m_kineticTimer.ElapsedMilliseconds() >= kKineticDelayMs)
   {
@@ -1123,7 +1150,6 @@ void UserEventStream::EndScale(const Touch & t1, const Touch & t2)
   m_navigator.StopScale(touch1, touch2);
 
   m_kineticTimer.Reset();
-  CheckAutoRotate();
 }
 
 void UserEventStream::BeginTapDetector()

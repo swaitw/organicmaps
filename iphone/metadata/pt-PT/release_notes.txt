@@ -1,15 +1,20 @@
-• Novos dados OSM de 3 de maio
-• A busca oferece suporte à moradas interpoladas
-• Renderização mais rápida da camada de metro
-• Correção de códigos postais incorretos em Paris
-• Correção de links ausentes da Wikipédia
-• Correção de roteamento de carros nas rotundas
-• Melhoria de traduções para alemão, inglês e português (Brasil)
-• Ativação de TTS para basco, espanhol (México), marata, norueguês e português (Brasil)
-• Adição de loja de antiguidades, arte, câmeras, decoração de interiores e queijos
-• Alteração de ícone de portão
-• Atualização do ícone do metro de Lyon
-• Correção de placas de identificação de estradas dos EUA
-• Correção na exibição de corpos d'água
+• Novos dados do OpenStreetMap a 21 de janeiro
+• Toque nas faixas para apresentar estatísticas e um perfil de elevação interativo
+• Um botão de gravação de faixas independente
+• Widget de atividade ao vivo com gravação de faixas e estatísticas de faixas (iOS 16.2 e posteriores)
+• Adicionados os idiomas sérvio (cirílico) e letão
+• Adicionados POIs de torre
 
-Acompanhe nossas novidades em omaps.org/new
+• Adicionados ícones específicos para Hong Kong, metro de Shenzhen e comboio ligeiro de Berlim, um ícone de monocarril separado
+• Adicionado um menu de contexto ao botão de coordenadas nos detalhes do POI
+• Mostrar um pop-up de lembrete sempre que o modo de ecrã inteiro for acedido
+• Apresentar uma explicação quando a pesquisa da categoria do Editor OSM não devolve nada
+• Diferenciar entre as cores da erva e da pradaria/prado
+• Cor menos saturada/proeminente em jardins residenciais
+• Corrigidos os escudos de estrada amarelos apresentados como verdes no modo noturno
+• Exibir os enchimentos de vegetação mais cedo no estilo de navegação do carro
+• Visualizar níveis complexos não numéricos para a construção de POIs
+• Melhorar a procura de picos e selas/passagens
+• EN como idioma de pesquisa adicional no Editor OSM
+• Atualizar traduções em estónio, finlandês, alemão, italiano e turco
+• ...muitas outras correções de bugs e melhorias na interface do utilizador

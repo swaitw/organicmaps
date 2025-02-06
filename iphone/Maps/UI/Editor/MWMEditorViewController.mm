@@ -3,7 +3,6 @@
 #import "MWMAuthorizationCommon.h"
 #import "MWMButtonCell.h"
 #import "MWMCuisineEditorViewController.h"
-#import "MWMDropDown.h"
 #import "MWMEditorAddAdditionalNameTableViewCell.h"
 #import "MWMEditorAdditionalNameTableViewCell.h"
 #import "MWMEditorAdditionalNamesHeader.h"
@@ -13,6 +12,7 @@
 #import "MWMEditorNotesFooter.h"
 #import "MWMEditorSelectTableViewCell.h"
 #import "MWMEditorSwitchTableViewCell.h"
+#import "MWMEditorSegmentedTableViewCell.hpp"
 #import "MWMEditorTextTableViewCell.h"
 #import "MWMNoteCell.h"
 #import "MWMObjectsCategorySelectorController.h"
@@ -67,6 +67,9 @@ std::map<MWMEditorCellID, Class> const kCellType2Class {
     {MetadataID::FMD_OPEN_HOURS, [MWMPlacePageOpeningHoursCell class]},
     {MetadataID::FMD_CUISINE, [MWMEditorSelectTableViewCell class]},
     {MetadataID::FMD_INTERNET, [MWMEditorSwitchTableViewCell class]},
+    {MetadataID::FMD_DRIVE_THROUGH, [MWMEditorSegmentedTableViewCell class]},
+    {MetadataID::FMD_SELF_SERVICE, [MWMEditorSegmentedTableViewCell class]},
+    {MetadataID::FMD_OUTDOOR_SEATING, [MWMEditorSegmentedTableViewCell class]},
     {MWMEditorCellTypeNote, [MWMNoteCell class]},
     {MWMEditorCellTypeReportButton, [MWMButtonCell class]}
 };
@@ -190,7 +193,7 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
 - (void)configNavBar
 {
   self.title =
-      L(self.isCreating ? @"editor_add_place_title" : @"editor_edit_place_title").capitalizedString;
+      L(self.isCreating ? @"editor_add_place_title" : @"editor_edit_place_title");
   self.navigationItem.rightBarButtonItem =
       [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSave
                                                     target:self
@@ -238,7 +241,7 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
   case osm::Editor::SaveResult::NothingWasChanged:
     [self.navigationController popToRootViewControllerAnimated:YES];
     if (haveNote)
-      [self showDropDown];
+      [self showNotesQueuedToast];
     break;
   case osm::Editor::SaveResult::SavedSuccessfully:
     osm_auth_ios::AuthorizationSetNeedCheck(YES);
@@ -251,10 +254,9 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
   }
 }
 
-- (void)showDropDown
+- (void)showNotesQueuedToast
 {
-  MWMDropDown * dd = [[MWMDropDown alloc] initWithSuperview:[MapViewController sharedController].controlsView];
-  [dd showWithMessage:L(@"editor_edits_sent_message")];
+  [[MWMToast toastWithText:L(@"editor_edits_sent_message")] show];
 }
 
 #pragma mark - Headers
@@ -334,7 +336,7 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
     return mid == MetadataID::FMD_POSTCODE || mid == MetadataID::FMD_BUILDING_LEVELS;
   }), editableProperties.end());
   BOOL const isCreating = self.isCreating;
-  BOOL const showNotesToOSMEditors = !isCreating;
+  BOOL const showNotesToOSMEditors = YES;
 
   if (isNameEditable)
   {
@@ -470,6 +472,17 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
                 keyboardType:UIKeyboardTypeURL];
     break;
   }
+  case MetadataID::FMD_WEBSITE_MENU:
+  {
+    [self configTextViewCell:cell
+                      cellID:cellID
+                        icon:@"ic_placepage_website_menu"
+                 placeholder:L(@"website_menu")
+                errorMessage:L(@"error_enter_correct_web")
+                     isValid:isValid
+                keyboardType:UIKeyboardTypeURL];
+    break;
+  }
   case MetadataID::FMD_EMAIL:
   {
     [self configTextViewCell:cell
@@ -505,27 +518,22 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
     // TODO(Vlad, IgorTomko): Support all other possible Internet statuses.
     [tCell configWithDelegate:self
                          icon:[UIImage imageNamed:@"ic_placepage_wifi"]
-                         text:L(@"wifi")
-                           on:m_mapObject.GetInternet() == osm::Internet::Wlan];
+                         text:L(@"category_wifi")
+                           on:m_mapObject.GetInternet() == feature::Internet::Wlan];
     break;
   }
   case MWMEditorCellTypeAdditionalName:
   {
     MWMEditorAdditionalNameTableViewCell * tCell =
         static_cast<MWMEditorAdditionalNameTableViewCell *>(cell);
-
-    // When default name is added - remove fake names from datasource.
-    auto const it = std::find(m_newAdditionalLanguages.begin(), m_newAdditionalLanguages.end(),
-                              StringUtf8Multilang::kDefaultCode);
-    auto const needFakes = it == m_newAdditionalLanguages.end();
-    auto const & localizedNames = m_mapObject.GetNamesDataSource(needFakes).names;
-
+    auto const & localizedNames = m_mapObject.GetNamesDataSource().names;
     if (indexPath.row < localizedNames.size())
     {
       osm::LocalizedName const & name = localizedNames[indexPath.row];
+      NSString * langName = indexPath.row == StringUtf8Multilang::kDefaultCode ? L(@"editor_default_language_hint") : ToNSString(name.m_langName);
       [tCell configWithDelegate:self
                        langCode:name.m_code
-                       langName:@(name.m_langName)
+                       langName:langName
                            name:@(name.m_name.c_str())
                    errorMessage:L(@"error_enter_correct_name")
                         isValid:isValid
@@ -541,12 +549,11 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
       if (langCode == StringUtf8Multilang::kDefaultCode)
       {
         name = m_mapObject.GetDefaultName();
-        m_mapObject.EnableNamesAdvancedMode();
       }
 
       [tCell configWithDelegate:self
                        langCode:langCode
-                       langName:@(StringUtf8Multilang::GetLangNameByCode(langCode))
+                       langName:ToNSString(StringUtf8Multilang::GetLangNameByCode(langCode))
                            name:@(name.c_str())
                    errorMessage:L(@"error_enter_correct_name")
                         isValid:isValid
@@ -564,7 +571,7 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
   {
     MWMEditorSelectTableViewCell * tCell = static_cast<MWMEditorSelectTableViewCell *>(cell);
     [tCell configWithDelegate:self
-                         icon:[UIImage imageNamed:@"ic_placepage_adress"]
+                         icon:[UIImage imageNamed:@"ic_placepage_address"]
                          text:@(m_mapObject.GetStreet().m_defaultName.c_str())
                   placeholder:L(@"add_street")];
     break;
@@ -636,6 +643,33 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
                   placeholder:L(@"select_cuisine")];
     break;
   }
+  case MetadataID::FMD_DRIVE_THROUGH:
+  {
+    MWMEditorSegmentedTableViewCell * tCell = static_cast<MWMEditorSegmentedTableViewCell *>(cell);
+    [tCell configWithDelegate:self
+                         icon:[UIImage imageNamed:@"ic_placepage_drive_through"]
+                         text:L(@"drive_through")
+                         value:feature::YesNoUnknownFromString(m_mapObject.GetMetadata(feature::Metadata::FMD_DRIVE_THROUGH))];
+    break;
+  }
+  case MetadataID::FMD_SELF_SERVICE:
+  {
+    MWMEditorSegmentedTableViewCell * tCell = static_cast<MWMEditorSegmentedTableViewCell *>(cell);
+    [tCell configWithDelegate:self
+                         icon:[UIImage imageNamed:@"ic_placepage_self_service"]
+                         text:L(@"self_service")
+                         value:feature::YesNoUnknownFromString(m_mapObject.GetMetadata(feature::Metadata::FMD_SELF_SERVICE))];
+    break;
+  }
+  case MetadataID::FMD_OUTDOOR_SEATING:
+  {
+    MWMEditorSegmentedTableViewCell * tCell = static_cast<MWMEditorSegmentedTableViewCell *>(cell);
+    [tCell configWithDelegate:self
+                         icon:[UIImage imageNamed:@"ic_placepage_outdoor_seating"]
+                         text:L(@"outdoor_seating")
+                         value:feature::YesNoUnknownFromString(m_mapObject.GetMetadata(feature::Metadata::FMD_OUTDOOR_SEATING))];
+    break;
+  } 
   case MetadataID::FMD_CONTACT_FACEBOOK:
   {
     [self configTextViewCell:cell
@@ -932,9 +966,63 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
   switch ([self cellTypeForIndexPath:indexPath])
   {
   case MetadataID::FMD_INTERNET:
-    m_mapObject.SetInternet(changeSwitch ? osm::Internet::Wlan : osm::Internet::Unknown);
+    m_mapObject.SetInternet(changeSwitch ? feature::Internet::Wlan : feature::Internet::Unknown);
     break;
   default: NSAssert(false, @"Invalid field for changeSwitch"); break;
+  }
+}
+
+- (void)cell:(UITableViewCell *)cell changeSegmented:(YesNoUnknown)changeSegmented
+{
+  NSIndexPath * indexPath = [self.tableView indexPathForCell:cell];
+  switch ([self cellTypeForIndexPath:indexPath])
+  {
+  case MetadataID::FMD_DRIVE_THROUGH:
+      switch (changeSegmented)
+      {
+        case Yes:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_DRIVE_THROUGH, "yes");
+          break;
+        case No:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_DRIVE_THROUGH, "no");
+          break;
+        case Unknown:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_DRIVE_THROUGH, "");
+          break;
+      }
+      break;
+
+    case MetadataID::FMD_SELF_SERVICE:
+      switch (changeSegmented)
+      {
+        case Yes:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_SELF_SERVICE, "yes");
+          break;
+        case No:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_SELF_SERVICE, "no");
+          break;
+        case Unknown:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_SELF_SERVICE, "");
+          break;
+      }
+      break;
+
+    case MetadataID::FMD_OUTDOOR_SEATING:
+      switch (changeSegmented)
+      {
+        case Yes:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_OUTDOOR_SEATING, "yes");
+          break;
+        case No:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_OUTDOOR_SEATING, "no");
+          break;
+        case Unknown:
+          m_mapObject.SetMetadata(feature::Metadata::FMD_OUTDOOR_SEATING, "");
+          break;
+      }
+      break;
+
+  default: NSAssert(false, @"Invalid field for changeSegmented"); break;
   }
 }
 
@@ -972,7 +1060,7 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
       GetFramework().CreateNote(self->m_mapObject, osm::Editor::NoteProblemType::PlaceDoesNotExist,
                                 additional);
       [self goBack];
-      [self showDropDown];
+      [self showNotesQueuedToast];
     }];
   };
 
@@ -1071,9 +1159,7 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
   else if ([segue.identifier isEqualToString:kAdditionalNamesEditorSegue])
   {
     MWMEditorAdditionalNamesTableViewController * dvc = segue.destinationViewController;
-    [dvc configWithDelegate:self
-                               name:m_mapObject.GetNameMultilang()
-        additionalSkipLanguageCodes:m_newAdditionalLanguages];
+    [dvc configWithDelegate:self name:m_mapObject.GetNameMultilang() additionalSkipLanguageCodes:m_newAdditionalLanguages];
   }
 }
 
@@ -1088,7 +1174,6 @@ void registerCellsForTableView(std::vector<MWMEditorCellID> const & cells, UITab
   [self.alertController presentPersonalInfoWarningAlertWithBlock:^
   {
     [ud setBool:YES forKey:kUDEditorPersonalInfoWarninWasShown];
-    [ud synchronize];
     [self onSave];
   }];
 

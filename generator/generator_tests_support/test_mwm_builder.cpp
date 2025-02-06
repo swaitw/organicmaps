@@ -7,12 +7,10 @@
 #include "generator/feature_merger.hpp"
 #include "generator/feature_sorter.hpp"
 #include "generator/generator_tests_support/test_feature.hpp"
-#include "generator/postcode_points_builder.hpp"
 #include "generator/search_index_builder.hpp"
 
 #include "indexer/city_boundary.hpp"
 #include "indexer/data_header.hpp"
-#include "indexer/feature_data.hpp"
 #include "indexer/feature_meta.hpp"
 #include "indexer/features_offsets_table.hpp"
 #include "indexer/ftypes_matcher.hpp"
@@ -30,7 +28,6 @@
 
 #include "defines.hpp"
 
-#include <memory>
 
 namespace generator
 {
@@ -117,17 +114,10 @@ bool TestMwmBuilder::Add(FeatureBuilder & fb)
     CHECK(strings::to_uint(metadata.Get(Metadata::FMD_TEST_ID), testId), ());
     m_boundariesTable.Append(testId, indexer::CityBoundary(fb.GetOuterGeometry()));
 
-    auto const center = fb.GetGeometryCenter();
-    fb.SetCenter(center);
+    fb.SetCenter(fb.GetGeometryCenter());
   }
 
-  if (!fb.PreSerializeAndRemoveUselessNamesForIntermediate())
-  {
-    LOG(LWARNING, ("Can't pre-serialize feature."));
-    return false;
-  }
-
-  if (!fb.RemoveInvalidTypes())
+  if (!fb.RemoveInvalidTypes() || !fb.PreSerializeAndRemoveUselessNamesForIntermediate())
   {
     LOG(LWARNING, ("No types."));
     return false;
@@ -137,10 +127,12 @@ bool TestMwmBuilder::Add(FeatureBuilder & fb)
   return true;
 }
 
-void TestMwmBuilder::SetUKPostcodesData(string const & postcodesPath,
-    std::shared_ptr<storage::CountryInfoGetter> const & countryInfoGetter)
+void TestMwmBuilder::SetPostcodesData(string const & postcodesPath,
+                                      indexer::PostcodePointsDatasetType postcodesType,
+                                      std::shared_ptr<storage::CountryInfoGetter> const & countryInfoGetter)
 {
-  m_ukPostcodesPath = postcodesPath;
+  m_postcodesPath = postcodesPath;
+  m_postcodesType = postcodesType;
   m_postcodesCountryInfoGetter = countryInfoGetter;
 }
 
@@ -177,16 +169,16 @@ void TestMwmBuilder::Finish()
                                               true /* forceRebuild */, 1 /* threadsCount */),
         ("Can't build search index."));
 
-  if (!m_ukPostcodesPath.empty() && m_postcodesCountryInfoGetter)
+  if (!m_postcodesPath.empty() && m_postcodesCountryInfoGetter)
   {
     CHECK(indexer::BuildPostcodePointsWithInfoGetter(m_file.GetDirectory(), m_file.GetCountryName(),
-                                                     indexer::PostcodePointsDatasetType::UK,
-                                                     m_ukPostcodesPath, true /* forceRebuild */,
+                                                     m_postcodesType,
+                                                     m_postcodesPath, true /* forceRebuild */,
                                                      *m_postcodesCountryInfoGetter),
           ("Can't build postcodes section."));
   }
 
-  UNUSED_VALUE(base::DeleteFileX(path + TEMP_ADDR_FILENAME));
+  UNUSED_VALUE(base::DeleteFileX(path + TEMP_ADDR_EXTENSION));
 
   if (m_type == DataHeader::MapType::World)
   {

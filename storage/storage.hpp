@@ -353,7 +353,7 @@ public:
   /// \brief Fills |nodes| with CountryIds of topmost nodes for this |countryId|.
   /// \param level is distance from top level except root.
   /// For disputed territories all possible owners will be added.
-  /// Puts |countryId| to |nodes| when |level| is greater than the level of |countyId|.
+  /// Puts |countryId| to |nodes| when |level| is greater than the level of |countryId|.
   void GetTopmostNodesFor(CountryId const & countryId, CountriesVec & nodes,
                           size_t level = 0) const;
 
@@ -377,6 +377,9 @@ public:
 
   /// \brief Returns true if the last version of countryId has been downloaded.
   bool HasLatestVersion(CountryId const & countryId) const;
+
+  /// \brief Returns true if the version of countryId can be used to update maps.
+  bool IsAllowedToEditVersion(CountryId const & countryId) const;
 
   /// Returns version of downloaded mwm or zero.
   int64_t GetVersion(CountryId const & countryId) const;
@@ -580,6 +583,8 @@ public:
 
   std::string GetFilePath(CountryId const & countryId, MapFileType file) const;
 
+  void RestoreDownloadQueue();
+
 protected:
   void OnFinishDownloading();
 
@@ -587,7 +592,6 @@ private:
   friend struct storage_tests::UnitClass_StorageTest_DeleteCountry;
 
   void SaveDownloadQueue();
-  void RestoreDownloadQueue();
 
   // Returns true when country is in the downloader's queue.
   bool IsCountryInQueue(CountryId const & countryId) const;

@@ -8,7 +8,7 @@
 #include "geometry/mercator.hpp"
 
 #include "platform/localization.hpp"
-#include "platform/measurement_utils.hpp"
+#include "platform/distance.hpp"
 
 
 @interface MWMSearchCommonCell ()
@@ -32,36 +32,7 @@
   self.locationLabel.text = @(result.GetAddress().c_str());
   [self.locationLabel sizeToFit];
 
-  int const starsCount = std::min(7, result.GetStarsCount());
-  NSString * cuisine = @(result.GetCuisine().c_str()).capitalizedString;
-  NSString * airportIata = @(result.GetAirportIata().c_str());
-  NSString * roadShields = @(result.GetRoadShields().c_str());
-  NSString * brand  = @"";
-  if (!result.GetBrand().empty())
-    brand = @(platform::GetLocalizedBrandName(result.GetBrand()).c_str());
-  
-  NSString * description = @"";
-
-  if (result.IsHotel() && starsCount > 0)
-  {
-    static NSString * sevenStars = [NSString stringWithUTF8String:"★★★★★★★"];
-    description = [sevenStars substringToIndex:starsCount];
-  }
-  else if (airportIata.length > 0)
-    description = airportIata;
-  else if (roadShields.length > 0)
-    description = roadShields;
-  else if (brand.length > 0 && cuisine.length > 0)
-    description = [NSString stringWithFormat:@"%@ • %@", brand, cuisine];
-  else if (brand.length > 0)
-    description = brand;
-  else if (cuisine.length > 0)
-    description = cuisine;
-  
-  if ([description length] == 0)
-    self.infoLabel.text = localizedTypeName;
-  else
-    self.infoLabel.text = [NSString stringWithFormat:@"%@ • %@", localizedTypeName, description];
+  self.infoLabel.text = @(result.GetFeatureDescription().c_str());
 
   CLLocation * lastLocation = [MWMLocationManager lastLocation];
   double distanceInMeters = 0.0;
@@ -69,12 +40,9 @@
   {
     if (result.HasPoint())
     {
-      auto const localizedUnits = platform::GetLocalizedDistanceUnits();
       distanceInMeters =
           mercator::DistanceOnEarth(lastLocation.mercator, result.GetFeatureCenter());
-      std::string distanceStr = measurement_utils::FormatDistanceWithLocalization(distanceInMeters,
-                                                                                  localizedUnits.m_high,
-                                                                                  localizedUnits.m_low);
+      std::string distanceStr = platform::Distance::CreateFormatted(distanceInMeters).ToString();
       self.distanceLabel.text = @(distanceStr.c_str());
     }
   }
@@ -127,7 +95,7 @@
     }
   }
 
-  [self setStyleAndApply: @"Background"];
+  [self setStyleNameAndApply: @"Background"];
 }
 
 - (NSDictionary *)selectedTitleAttributes

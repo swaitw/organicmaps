@@ -1,13 +1,16 @@
 #pragma once
 
+#include "traffic/traffic_info.hpp"
+
 #include "drape_frontend/backend_renderer.hpp"
 #include "drape_frontend/color_constants.hpp"
 #include "drape_frontend/custom_features_context.hpp"
+#include "drape_frontend/drape_engine_params.hpp"
 #include "drape_frontend/drape_hints.hpp"
 #include "drape_frontend/frontend_renderer.hpp"
-#include "drape_frontend/route_shape.hpp"
 #include "drape_frontend/overlays_tracker.hpp"
 #include "drape_frontend/postprocess_renderer.hpp"
+#include "drape_frontend/route_shape.hpp"
 #include "drape_frontend/scenario_manager.hpp"
 #include "drape_frontend/selection_shape.hpp"
 #include "drape_frontend/threads_commutator.hpp"
@@ -16,8 +19,6 @@
 #include "drape/pointers.hpp"
 #include "drape/texture_manager.hpp"
 #include "drape/viewport.hpp"
-
-#include "traffic/traffic_info.hpp"
 
 #include "transit/transit_display_info.hpp"
 
@@ -51,26 +52,17 @@ class DrapeEngine
 public:
   struct Params
   {
-    Params(dp::ApiVersion apiVersion,
-           ref_ptr<dp::GraphicsContextFactory> factory,
-           dp::Viewport const & viewport,
-           MapDataProvider const & model,
-           Hints const & hints,
-           double vs,
-           double fontsScaleFactor,
-           gui::TWidgetsInitInfo && info,
-           location::TMyPositionModeChanged && myPositionModeChanged,
-           bool allow3dBuildings,
-           bool trafficEnabled,
-           bool isolinesEnabled,
-           bool blockTapEvents,
-           bool showChoosePositionMark,
-           std::vector<m2::TriangleD> && boundAreaTriangles,
-           bool isRoutingActive,
-           bool isAutozoomEnabled,
-           bool simplifiedTrafficColors,
+    Params(dp::ApiVersion apiVersion, ref_ptr<dp::GraphicsContextFactory> factory,
+           dp::Viewport const & viewport, MapDataProvider const & model, Hints const & hints,
+           double vs, double fontsScaleFactor, gui::TWidgetsInitInfo && info,
+           location::TMyPositionModeChanged && myPositionModeChanged, bool allow3dBuildings,
+           bool trafficEnabled, bool isolinesEnabled, bool blockTapEvents,
+           bool showChoosePositionMark, std::vector<m2::TriangleD> && boundAreaTriangles,
+           bool isRoutingActive, bool isAutozoomEnabled, bool simplifiedTrafficColors,
+           std::optional<Arrow3dCustomDecl> arrow3dCustomDecl,
            OverlaysShowStatsCallback && overlaysShowStatsCallback,
-           OnGraphicsContextInitialized && onGraphicsContextInitialized)
+           OnGraphicsContextInitialized && onGraphicsContextInitialized,
+           dp::RenderInjectionHandler && renderInjectionHandler)
       : m_apiVersion(apiVersion)
       , m_factory(factory)
       , m_viewport(viewport)
@@ -89,8 +81,10 @@ public:
       , m_isRoutingActive(isRoutingActive)
       , m_isAutozoomEnabled(isAutozoomEnabled)
       , m_simplifiedTrafficColors(simplifiedTrafficColors)
+      , m_arrow3dCustomDecl(std::move(arrow3dCustomDecl))
       , m_overlaysShowStatsCallback(std::move(overlaysShowStatsCallback))
       , m_onGraphicsContextInitialized(std::move(onGraphicsContextInitialized))
+      , m_renderInjectionHandler(std::move(renderInjectionHandler))
     {}
 
     dp::ApiVersion m_apiVersion;
@@ -112,8 +106,10 @@ public:
     bool m_isRoutingActive;
     bool m_isAutozoomEnabled;
     bool m_simplifiedTrafficColors;
+    std::optional<Arrow3dCustomDecl> m_arrow3dCustomDecl;
     OverlaysShowStatsCallback m_overlaysShowStatsCallback;
     OnGraphicsContextInitialized m_onGraphicsContextInitialized;
+    dp::RenderInjectionHandler m_renderInjectionHandler;
   };
 
   DrapeEngine(Params && params);
@@ -129,7 +125,10 @@ public:
   void AddTouchEvent(TouchEvent const & event);
   void Scale(double factor, m2::PointD const & pxPoint, bool isAnim);
   void Move(double factorX, double factorY, bool isAnim);
+  void Scroll(double distanceX, double distanceY);
   void Rotate(double azimuth, bool isAnim);
+
+  void MakeFrameActive();
 
   void ScaleAndSetCenter(m2::PointD const & centerPt, double scaleFactor, bool isAnim,
                          bool trackVisibleViewport);
@@ -144,7 +143,7 @@ public:
   using ModelViewChangedHandler = FrontendRenderer::ModelViewChangedHandler;
   void SetModelViewListener(ModelViewChangedHandler && fn);
 
-#if defined(OMIM_OS_MAC) || defined(OMIM_OS_LINUX)
+#if defined(OMIM_OS_DESKTOP)
   using GraphicsReadyHandler = FrontendRenderer::GraphicsReadyHandler;
   void NotifyGraphicsReady(GraphicsReadyHandler const & fn, bool needInvalidate);
 #endif
@@ -170,8 +169,6 @@ public:
   void SetTapEventInfoListener(TapEventInfoHandler && fn);
   using UserPositionChangedHandler = FrontendRenderer::UserPositionChangedHandler;
   void SetUserPositionListener(UserPositionChangedHandler && fn);
-  using UserPositionPendingTimeoutHandler = FrontendRenderer::UserPositionPendingTimeoutHandler;
-  void SetUserPositionPendingTimeoutListener(UserPositionPendingTimeoutHandler && fn);
 
   void SelectObject(SelectionShape::ESelectedObject obj, m2::PointD const & pt,
                     FeatureID const & featureID, bool isAnim, bool isGeometrySelectionAllowed,
@@ -199,11 +196,12 @@ public:
                             std::vector<uint32_t> && toRemove);
   void ClearGpsTrackPoints();
 
-  void EnableChoosePositionMode(bool enable, std::vector<m2::TriangleD> && boundAreaTriangles,
-                                bool hasPosition, m2::PointD const & position);
+  void EnableChoosePositionMode(bool enable, std::vector<m2::TriangleD> && boundAreaTriangles, m2::PointD const * optionalPosition);
   void BlockTapEvents(bool block);
 
   void SetKineticScrollEnabled(bool enabled);
+
+  void SetMapLangIndex(int8_t mapLangIndex);
 
   void OnEnterForeground();
   void OnEnterBackground();
@@ -253,6 +251,10 @@ public:
 
   location::EMyPositionMode GetMyPositionMode() const;
 
+  void SetCustomArrow3d(std::optional<Arrow3dCustomDecl> arrow3dCustomDecl);
+
+  dp::ApiVersion GetApiVersion() const { return m_frontend->GetApiVersion(); };
+
 private:
   void AddUserEvent(drape_ptr<UserEvent> && e);
   void PostUserEvent(drape_ptr<UserEvent> && e);
@@ -260,7 +262,6 @@ private:
   void MyPositionModeChanged(location::EMyPositionMode mode, bool routingActive);
   void TapEvent(TapInfo const & tapInfo);
   void UserPositionChanged(m2::PointD const & position, bool hasPosition);
-  void UserPositionPendingTimeout();
 
   void ResizeImpl(int w, int h);
   void RecacheGui(bool needResetOldGui);
@@ -274,7 +275,6 @@ private:
   drape_ptr<FrontendRenderer> m_frontend;
   drape_ptr<BackendRenderer> m_backend;
   drape_ptr<ThreadsCommutator> m_threadCommutator;
-  drape_ptr<dp::GlyphGenerator> m_glyphGenerator;
   drape_ptr<dp::TextureManager> m_textureManager;
   drape_ptr<RequestedTiles> m_requestedTiles;
   location::TMyPositionModeChanged m_myPositionModeChanged;
@@ -284,7 +284,6 @@ private:
   ModelViewChangedHandler m_modelViewChangedHandler;
   TapEventInfoHandler m_tapEventInfoHandler;
   UserPositionChangedHandler m_userPositionChangedHandler;
-  UserPositionPendingTimeoutHandler m_userPositionPendingTimeoutHandler;
 
   gui::TWidgetsInitInfo m_widgetsInfo;
   gui::TWidgetsLayoutInfo m_widgetsLayout;

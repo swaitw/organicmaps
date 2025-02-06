@@ -55,7 +55,6 @@ void InitLocalizedStrings() {
   f.AddString("core_my_position", L(@"core_my_position").UTF8String);
   f.AddString("core_placepage_unknown_place", L(@"core_placepage_unknown_place").UTF8String);
   f.AddString("postal_code", L(@"postal_code").UTF8String);
-  f.AddString("wifi", L(@"wifi").UTF8String);
 }
 }  // namespace
 
@@ -77,10 +76,6 @@ using namespace osm_auth_ios;
 
 - (BOOL)isDrapeEngineCreated {
   return self.mapViewController.mapView.drapeEngineCreated;
-}
-
-- (BOOL)isGraphicContextInitialized {
-  return self.mapViewController.mapView.graphicContextInitialized;
 }
 
 - (void)searchText:(NSString *)searchString {
@@ -106,6 +101,7 @@ using namespace osm_auth_ios;
   NSTimeInterval const minimumBackgroundFetchIntervalInSeconds = 6 * 60 * 60;
   [UIApplication.sharedApplication setMinimumBackgroundFetchInterval:minimumBackgroundFetchIntervalInSeconds];
   [self updateApplicationIconBadgeNumber];
+  [TrackRecordingManager.shared setup];
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
@@ -125,6 +121,9 @@ using namespace osm_auth_ios;
   }
   [self enableTTSForTheFirstTime];
 
+  if (![MapsAppDelegate isTestsEnvironment])
+    [[iCloudSynchronizaionManager shared] start];
+  
   [[DeepLinkHandler shared] applicationDidFinishLaunching:launchOptions];
   // application:openUrl:options is called later for deep links if YES is returned.
   return YES;
@@ -227,6 +226,14 @@ using namespace osm_auth_ios;
   [MWMKeyboard applicationDidBecomeActive];
   [MWMTextToSpeech applicationDidBecomeActive];
   LOG(LINFO, ("applicationDidBecomeActive - end"));
+}
+
+// TODO: Drape enabling and iCloud sync are skipped during the test run due to the app crashing in teardown. This is a temporary solution. Drape should be properly disabled instead of merely skipping the enabling process.
++ (BOOL)isTestsEnvironment {
+  NSProcessInfo * processInfo = [NSProcessInfo processInfo];
+  NSArray<NSString *> * launchArguments = [processInfo arguments];
+  BOOL isTests = [launchArguments containsObject:@"-IsTests"];
+  return isTests;
 }
 
 - (BOOL)application:(UIApplication *)application
@@ -375,7 +382,6 @@ using namespace osm_auth_ios;
   [standartDefaults setObject:currentVersion forKey:kUDFirstVersionKey];
   [standartDefaults setInteger:1 forKey:kUDSessionsCountKey];
   [standartDefaults setObject:NSDate.date forKey:kUDLastLaunchDateKey];
-  [standartDefaults synchronize];
 }
 
 - (void)incrementSessionCount {
@@ -390,7 +396,6 @@ using namespace osm_auth_ios;
     sessionCount++;
     [standartDefaults setInteger:sessionCount forKey:kUDSessionsCountKey];
     [standartDefaults setObject:NSDate.date forKey:kUDLastLaunchDateKey];
-    [standartDefaults synchronize];
   }
 }
 
@@ -409,53 +414,14 @@ using namespace osm_auth_ios;
 
 - (void)application:(UIApplication *)application
   didConnectCarInterfaceController:(CPInterfaceController *)interfaceController
-                          toWindow:(CPWindow *)window API_AVAILABLE(ios(12.0)) {
+           toWindow:(CPWindow *)window API_AVAILABLE(ios(12.0)) {
   [self.carplayService setupWithWindow:window interfaceController:interfaceController];
-  if (@available(iOS 13.0, *)) {
-    window.overrideUserInterfaceStyle = UIUserInterfaceStyleUnspecified;
-  }
-  [self updateAppearanceFromWindow:self.window toWindow:window isCarplayActivated:YES];
 }
 
 - (void)application:(UIApplication *)application
   didDisconnectCarInterfaceController:(CPInterfaceController *)interfaceController
                            fromWindow:(CPWindow *)window API_AVAILABLE(ios(12.0)) {
   [self.carplayService destroy];
-  [self updateAppearanceFromWindow:window toWindow:self.window isCarplayActivated:NO];
-}
-
-- (void)updateAppearanceFromWindow:(UIWindow *)sourceWindow
-                          toWindow:(UIWindow *)destinationWindow
-                isCarplayActivated:(BOOL)isCarplayActivated {
-  CGFloat sourceContentScale = sourceWindow.screen.scale;
-  CGFloat destinationContentScale = destinationWindow.screen.scale;
-  if (ABS(sourceContentScale - destinationContentScale) > 0.1) {
-    if (isCarplayActivated) {
-      [self updateVisualScale:destinationContentScale];
-    } else {
-      [self updateVisualScaleToMain];
-    }
-  }
-}
-
-- (void)updateVisualScale:(CGFloat)scale {
-  if ([self isGraphicContextInitialized]) {
-    [self.mapViewController.mapView updateVisualScaleTo:scale];
-  } else {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [self updateVisualScale:scale];
-    });
-  }
-}
-
-- (void)updateVisualScaleToMain {
-  if ([self isGraphicContextInitialized]) {
-    [self.mapViewController.mapView updateVisualScaleToMain];
-  } else {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [self updateVisualScaleToMain];
-    });
-  }
 }
 
 @end

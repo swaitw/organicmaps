@@ -48,7 +48,7 @@ public:
 
   static void Init()
   {
-    Instance();
+    Instance(true /* reinitialize*/);
   }
 
   static void Shutdown()
@@ -73,7 +73,7 @@ public:
   }
 
   template <typename Task>
-  static ResultPtr RunDelayed(base::thread_pool::delayed::ThreadPool::Duration const & duration, Task && t)
+  static ResultPtr RunDelayed(base::DelayedThreadPool::Duration const & duration, Task && t)
   {
     ResultPtr result(new Result(Instance().GetNextId()));
     auto const pushResult = Instance().m_workerThread.PushDelayed(duration, [result, t = std::forward<Task>(t)]() mutable
@@ -106,10 +106,15 @@ public:
   }
 
 private:
-  static DrapeRoutine & Instance()
+  static DrapeRoutine & Instance(bool reinitialize = false)
   {
-    static DrapeRoutine instance;
-    return instance;
+    static std::unique_ptr<DrapeRoutine> instance;
+    if (!instance || reinitialize) {
+      if (instance)
+        instance->FinishAll();
+      instance = std::unique_ptr<DrapeRoutine>(new DrapeRoutine());
+    }
+    return *instance;
   }
 
   DrapeRoutine() : m_workerThread(4 /* threads count */) {}
@@ -154,8 +159,8 @@ private:
   bool m_finished = false;
   std::condition_variable m_condition;
   std::mutex m_mutex;
-  base::thread_pool::delayed::ThreadPool m_workerThread;
-  base::thread_pool::delayed::ThreadPool m_sequentialWorkerThread;
+  base::DelayedThreadPool m_workerThread;
+  base::DelayedThreadPool m_sequentialWorkerThread;
 };
 
 // This is a helper class, which aggregates logic of waiting for active
